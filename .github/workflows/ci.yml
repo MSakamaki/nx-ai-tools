@@ -16,25 +16,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          filter: tree:0
           fetch-depth: 0
 
-      # This enables task distribution via Nx Cloud
-      # Run this command as early as possible, before dependencies are installed
-      # Learn more at https://nx.dev/docs/reference/nx-cloud-cli#npx-nxcloud-startcirun
-      - run: npx nx start-ci-run --distribute-on="3 linux-medium-js" --stop-agents-after="e2e"
-
-      # Cache node_modules
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '22.x'
           cache: 'npm'
 
       - run: npm ci
 
-      # Prepend any command with "nx record --" to record its logs to Nx Cloud
-      - run: npx nx record -- npx nx format:check --base="remotes/origin/main"
-      - run: npx nx run-many -t lint test build typecheck e2e
-      # Nx Cloud recommends fixes for failures to help you get CI green faster. Learn more: https://nx.dev/docs/features/ci-features/self-healing-ci
-      - run: npx nx fix-ci
-        if: always()
+      # Sets NX_BASE / NX_HEAD so `nx affected` diffs correctly on both
+      # pull_request and push-to-main events.
+      - uses: nrwl/nx-set-shas@v4
+
+      - run: npx nx affected -t lint test build typecheck
+
+      - name: npm pack --dry-run (ai-metrics)
+        run: npm pack --dry-run
+        working-directory: packages/ai-metrics
+
+      - name: Build ai-metrics
+        run: npx nx build ai-metrics
+
+      - name: CLI smoke test (run built entry directly)
+        run: |
+          set +e
+          OUTPUT=$(node packages/ai-metrics/dist/cli/index.js --help 2>&1)
+          set -e
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Usage: ai-metrics"
+
+      - name: Pack ai-metrics tarball
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+        working-directory: packages/ai-metrics
+
+      - name: Install tarball into a temp project and run the CLI
+        run: |
+          set -e
+          TARBALL=$(ls "$RUNNER_TEMP"/nx-ai-tools-ai-metrics-*.tgz)
+          INSTALL_DIR=$(mktemp -d)
+          cd "$INSTALL_DIR"
+          npm init -y >/dev/null
+          npm install "$TARBALL"
+          set +e
+          OUTPUT=$(npx --no-install ai-metrics --help 2>&1)
+          set -e
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Usage: ai-metrics"

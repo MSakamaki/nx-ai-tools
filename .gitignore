@@ -50,3 +50,6 @@ vitest.config.*.timestamp*
 .nx/polygraph
 .nx/self-healing
 .nx/migrate-runs
+
+# ai-metrics generated report output (per-project data dir; events.jsonl/config.json/hooks stay tracked)
+.ai/metrics/generated/

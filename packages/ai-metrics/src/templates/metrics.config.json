@@ -1,0 +1,16 @@
+{
+  "metricsRoot": ".ai/metrics",
+  "eventsDir": ".ai/metrics/events",
+  "generatedDir": ".ai/metrics/generated",
+  "hooksDir": ".ai/metrics/hooks",
+  "report": {
+    "port": 4321
+  },
+  "showPromptBody": true,
+  "showResponseBody": true,
+  "markdownRendering": false,
+  "providers": {
+    "claude-code": "enabled",
+    "copilot": "experimental"
+  }
+}

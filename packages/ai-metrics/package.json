@@ -1,0 +1,57 @@
+{
+  "name": "@nx-ai-tools/ai-metrics",
+  "version": "0.0.1",
+  "description": "Capture AI coding assistant usage (Claude Code hooks, GitHub Copilot) into local jsonl logs and build usage reports.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ai-metrics": "./dist/cli/index.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@org/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./experimental": {
+      "@org/source": "./src/experimental.ts",
+      "types": "./dist/experimental.d.ts",
+      "import": "./dist/experimental.js",
+      "default": "./dist/experimental.js"
+    },
+    "./schema/metrics.config.schema.json": "./dist/schema/metrics.config.schema.json"
+  },
+  "files": [
+    "dist",
+    "!**/*.tsbuildinfo"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0",
+    "zod": "^4.4.3"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "dependsOn": ["^build", "copy-assets"]
+      },
+      "copy-assets": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "node scripts/copy-assets.mjs",
+          "cwd": "packages/ai-metrics"
+        }
+      }
+    }
+  }
+}

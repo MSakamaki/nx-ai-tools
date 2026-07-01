@@ -1,0 +1,63 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      # Release events aren't a push/PR pair, so there's no natural affected base (and `--base=HEAD~1`
+      # hard-fails outright on a repo/ref with no prior commit, e.g. the very first release). Target
+      # the package being published directly instead - deterministic and always covers what's shipping.
+      - run: npx nx run-many -t lint test build typecheck -p ai-metrics
+
+      - name: npm pack --dry-run (ai-metrics)
+        run: npm pack --dry-run
+        working-directory: packages/ai-metrics
+
+      - name: Ensure ai-metrics is built
+        run: npx nx build ai-metrics
+
+      - name: Pack and smoke-test the tarball's CLI
+        run: |
+          set -e
+          PACK_DIR=$(mktemp -d)
+          npm pack --pack-destination "$PACK_DIR"
+          TARBALL=$(ls "$PACK_DIR"/nx-ai-tools-ai-metrics-*.tgz)
+          # Install into a throwaway project (not just `tar -xzf`) so the package's own
+          # dependencies (e.g. zod) resolve - the published tarball has no node_modules of its own.
+          INSTALL_DIR=$(mktemp -d)
+          (cd "$INSTALL_DIR" && npm init -y >/dev/null && npm install "$TARBALL")
+          set +e
+          OUTPUT=$(cd "$INSTALL_DIR" && npx --no-install ai-metrics --help 2>&1)
+          set -e
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "Usage: ai-metrics"
+        working-directory: packages/ai-metrics
+
+      # Intentionally not gated on whether this version already exists on npm - if it does,
+      # `npm publish` fails naturally and that failure is expected/acceptable.
+      - name: npm publish
+        run: npm publish --access public --provenance
+        working-directory: packages/ai-metrics
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

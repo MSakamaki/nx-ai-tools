@@ -2,9 +2,14 @@
   "name": "@org/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release-packages": "changeset publish"
+  },
   "private": true,
   "devDependencies": {
+    "@changesets/cli": "^2.31.0",
     "@eslint/js": "^9.8.0",
     "@nx/eslint": "23.0.1",
     "@nx/eslint-plugin": "23.0.1",
@@ -45,6 +50,5 @@
         }
       }
     }
-  },
-  "dependencies": {}
+  }
 }

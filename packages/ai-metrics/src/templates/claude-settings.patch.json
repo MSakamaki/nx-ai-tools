@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "node .ai/metrics/hooks/claude-code-hook.mjs" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "node .ai/metrics/hooks/claude-code-hook.mjs" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "node .ai/metrics/hooks/claude-code-hook.mjs" }] }
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "node .ai/metrics/hooks/claude-code-hook.mjs" }] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "node .ai/metrics/hooks/claude-code-hook.mjs" }] }
+    ]
+  }
+}
