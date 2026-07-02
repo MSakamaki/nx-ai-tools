@@ -24,10 +24,6 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
           gitContext: resolveGitContext(cwd),
         });
 
-        if (!draft) {
-          return undefined;
-        }
-
         return recordEvent<MetricsEvent>(draft, { config: options.config, cwd: options.cwd });
       } catch (error) {
         options.onError?.(error);

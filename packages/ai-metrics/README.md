@@ -27,12 +27,12 @@ AIコーディングアシスタント（Claude Code / Copilot）の利用状況
 
 ## Provider対応状況
 
-| Provider    | Status                   | エントリポイント |
-| ----------- | ------------------------ | ---------------- |
-| Claude Code | **Initial support**      | `createClaudeCodeAdapter`（`@nx-ai-tools/ai-metrics`） |
-| Copilot     | **Experimental adapter** | `createCopilotAdapter`（`@nx-ai-tools/ai-metrics/experimental`） |
+| Provider    | Status                            | エントリポイント |
+| ----------- | ---------------------------------- | ---------------- |
+| Claude Code | **Initial support**               | `createClaudeCodeAdapter`（`@nx-ai-tools/ai-metrics`） |
+| Copilot     | **Experimental / project hooks template** | `createCopilotHookAdapter`（`@nx-ai-tools/ai-metrics/experimental`） |
 
-Copilotは実際のテレメトリ取得手段がまだ無いため、`ProviderAdapter` インターフェースのみを提供する experimental 版です。詳細は [docs/provider-strategy.md](docs/provider-strategy.md) を参照してください。
+Copilotには標準的なhook機構が無いため、`.github/hooks/ai-metrics.json`（Copilot向けのイベント配線を宣言する設定）と `.ai/metrics/hooks/copilot-hook.mjs`（実際に呼ばれる薄いラッパー）を使った「project hooks template」として提供しています。イベント名のマッピングは `.ai/metrics/copilot/adapter.config.json` で調整可能です。認識できないイベントは `raw_event` としてそのまま記録され、破棄されません。詳細は [docs/provider-strategy.md](docs/provider-strategy.md) を参照してください。
 
 ## インストール
 
@@ -46,7 +46,13 @@ npm install @nx-ai-tools/ai-metrics
 npx ai-metrics init
 ```
 
-現在のプロジェクトに `.ai/metrics/` を作成し、Claude Codeのhookを `.claude/settings.json` に追加します（既存のhooksや設定は保持されます）。
+現在のプロジェクトに `.ai/metrics/` を作成します。`--provider` を省略した場合、TTYであれば対話式に、非TTYであれば `claude-code` のみを対象にセットアップします（既存のhooksや設定は保持されます）。
+
+```sh
+npx ai-metrics init --provider claude-code       # Claude Codeのみ
+npx ai-metrics init --provider copilot           # Copilotのみ（experimental）
+npx ai-metrics init --provider claude-code,copilot
+```
 
 ```sh
 npx ai-metrics report build
@@ -59,10 +65,12 @@ npx ai-metrics report serve
 
 | コマンド | 概要 |
 | --- | --- |
-| `ai-metrics init` | `.ai/metrics/` の初期構築とClaude Code hookの登録（`--dry-run` / `--force`） |
-| `ai-metrics doctor` | セットアップの読み取り専用診断（イベントは記録しない） |
+| `ai-metrics init` | `.ai/metrics/` の初期構築とprovider hookの登録（`--provider claude-code,copilot` / `--dry-run` / `--force` / `--yes`） |
+| `ai-metrics doctor` | セットアップの読み取り専用診断（イベントは記録しない、`--provider` / `--json`） |
 | `ai-metrics report build` | イベントログを集計し `summary.json` / `sessions.json` を生成（`--strict`） |
-| `ai-metrics report serve` | レポートUIをローカルで配信（デフォルト `localhost:4321`） |
+| `ai-metrics report serve` | レポートUIをローカルで配信（デフォルト `localhost:4321`、`--port`） |
+
+`ai-metrics doctor --provider copilot` を指定した場合、`.github/hooks/ai-metrics.json` と `.ai/metrics/hooks/copilot-hook.mjs` の両方が存在しないとERROR（終了コード1）になります。`--provider` を省略した場合、Copilotは実際にセットアップされている場合のみ診断対象になります。
 
 各コマンドの詳細なオプション・出力例は将来 `docs/cli.md` 等に切り出す予定です。現時点ではソースコード内のヘルプ（`ai-metrics --help`）を参照してください。
 

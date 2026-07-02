@@ -229,3 +229,18 @@ th {
   color: #b45309;
   border-color: #b45309;
 }
+
+.badge.experimental {
+  color: #7c3aed;
+  border-color: #7c3aed;
+  border-style: dashed;
+}
+
+.raw-json {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  padding: 0.5rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}

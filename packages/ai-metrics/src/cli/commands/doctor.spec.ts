@@ -19,6 +19,7 @@ function fullyInitializedProject(cwd: string): void {
       },
     }),
   );
+  writeFileSync(join(cwd, '.gitignore'), '.ai/metrics/generated/\n');
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd });
   execFileSync('git', ['config', 'user.name', 'Test User'], { cwd });
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd });
@@ -89,5 +90,58 @@ describe('runDoctor', () => {
     runDoctor({ cwd, json: true });
 
     expect(readdirSync(join(cwd, '.ai/metrics/events'))).toEqual([]);
+  });
+
+  describe('--provider', () => {
+    it('--provider claude-code on a fully initialized project still reports OK', () => {
+      fullyInitializedProject(cwd);
+
+      runDoctor({ cwd, provider: 'claude-code' });
+
+      expect(process.exitCode).toBe(0);
+      const lastLine = consoleLogSpy.mock.calls.at(-1)?.[0] as string;
+      expect(lastLine).toBe('Overall: OK');
+    });
+
+    it('--provider copilot exits 1 when Copilot has not been set up at all', () => {
+      mkdirSync(join(cwd, 'node_modules/@nx-ai-tools/ai-metrics'), { recursive: true });
+
+      runDoctor({ cwd, provider: 'copilot' });
+
+      expect(process.exitCode).toBe(1);
+      const lastLine = consoleLogSpy.mock.calls.at(-1)?.[0] as string;
+      expect(lastLine).toBe('Overall: ERROR');
+    });
+
+    it('--provider copilot exits 0 once both required files are present and valid', () => {
+      mkdirSync(join(cwd, 'node_modules/@nx-ai-tools/ai-metrics'), { recursive: true });
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      mkdirSync(join(cwd, '.ai/metrics/hooks'), { recursive: true });
+      mkdirSync(join(cwd, '.ai/metrics/events'), { recursive: true });
+      mkdirSync(join(cwd, '.ai/metrics/copilot'), { recursive: true });
+      writeFileSync(join(cwd, '.ai/metrics/metrics.config.json'), '{}');
+      writeFileSync(
+        join(cwd, '.github/hooks/ai-metrics.json'),
+        JSON.stringify({ version: 1, hooks: { userPromptSubmitted: { command: 'node .ai/metrics/hooks/copilot-hook.mjs' } } }),
+      );
+      writeFileSync(join(cwd, '.ai/metrics/hooks/copilot-hook.mjs'), '// hook\n');
+      writeFileSync(join(cwd, '.ai/metrics/copilot/adapter.config.json'), '{}');
+      writeFileSync(join(cwd, '.ai/metrics/copilot/sample-event.json'), '{}');
+      writeFileSync(join(cwd, '.gitignore'), '.ai/metrics/generated/\n');
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd });
+      execFileSync('git', ['config', 'user.name', 'Test User'], { cwd });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd });
+      execFileSync('git', ['commit', '--allow-empty', '-q', '-m', 'init'], { cwd });
+
+      runDoctor({ cwd, provider: 'copilot' });
+
+      expect(process.exitCode).toBe(0);
+      const lastLine = consoleLogSpy.mock.calls.at(-1)?.[0] as string;
+      expect(lastLine).toBe('Overall: OK');
+    });
+
+    it('rejects an unknown --provider value', () => {
+      expect(() => runDoctor({ cwd, provider: 'vscode-copilot' })).toThrow();
+    });
   });
 });

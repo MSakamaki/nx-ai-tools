@@ -19,7 +19,7 @@
 - 処理結果（`status`）、処理時間
 - agent/skillの使用状況（名称・種別・ソースパス）
 - git情報（`git user.name`、ブランチ、`baseCommitHash`、`commitHash` など）
-- 正規化前の生payload（`raw`）
+- 正規化前の生payload（`rawEvent`）— **正規化済みイベント（`promptBody`/`responseBody`などに反映済み）でも保持され、Copilotの未知イベント（`raw_event`）では唯一の情報源になります。** `providers.copilot.rawEvent.enabled`（`metrics.config.json`）で保持自体を止められ、`maxBytes`（デフォルト1MB）を超える場合は切り詰められます（`rawEventTruncated: true`）
 
 ## 保存されないもの / 初期版で扱わないもの
 
@@ -27,7 +27,7 @@
 - プロンプト・応答本文の自動マスキング・自動検知（機密情報の自動検出など）は行いません
 - セーフティ判定・危険操作のブロッキングは行いません（別パッケージの責務）
 - 個人の評価・査定を目的としたスコアリングや自動レポーティングは行いません
-- Copilotについては、実データを取得する手段自体がまだ無いため、実質的にはインターフェースのみが存在する状態です（[provider-strategy.md](provider-strategy.md) 参照）
+- Copilotについては、標準的なテレメトリ取得手段がまだ無いため、プロジェクト側が自分のイベント源（VS Code拡張・カスタムスクリプトなど）を配線する「project hooks template」としての提供です。実際に何が取得できるかは、その配線内容に完全に依存します（[provider-strategy.md](provider-strategy.md) 参照）
 
 ## git commit対象 / gitignore対象の区別
 
@@ -35,7 +35,11 @@
 | --- | --- | --- |
 | `.ai/metrics/metrics.config.json` | **commit対象** | チームで共有する設定 |
 | `.ai/metrics/hooks/claude-code-hook.mjs` | **commit対象** | Claude Codeが実行するhookスクリプト、チームで共有 |
-| `.ai/metrics/events/**/*.jsonl` | **commit対象** | 生のイベントログ。他のcommit履歴と同様に、履歴として共有・レビューされることを前提とする |
+| `.ai/metrics/claude-code/README.md` | **commit対象** | Claude Code連携の説明 |
+| `.github/hooks/ai-metrics.json` | **commit対象** | Copilotが直接読む想定のhook設定。ファイル名固定 |
+| `.ai/metrics/hooks/copilot-hook.mjs` | **commit対象** | Copilot向けhookが実行するラッパースクリプト、チームで共有 |
+| `.ai/metrics/copilot/{README.md,adapter.config.json,sample-event.json}` | **commit対象** | Copilot連携の設定・説明・サンプル |
+| `.ai/metrics/events/**/*.jsonl` | **commit対象** | 生のイベントログ（`rawEvent` を含む）。他のcommit履歴と同様に、履歴として共有・レビューされることを前提とする |
 | `.ai/metrics/generated/summary.json` | **gitignore（推奨）** | `report build` の派生出力。イベントログから常に再生成可能 |
 | `.ai/metrics/generated/sessions.json` | **gitignore（推奨）** | 同上 |
 
@@ -57,3 +61,4 @@
 - リポジトリへのアクセス権がある人は誰でもプロンプト・応答本文を読める状態になることを、導入前にメンバー全員に周知してください
 - 機密情報や顧客データを含むプロンプトを送信する可能性がある環境では、`.ai/metrics/events/` の共有範囲（リポジトリの公開範囲・アクセス権）を事前に見直してください
 - `showPromptBody` / `showResponseBody`（`metrics.config.json`）は、`report serve` のUI/APIでの表示・非表示を制御するだけで、JSONLファイルへの書き込み内容自体は変わりません。この設定を `false` にしても、リポジトリの履歴からは本文を読めることに変わりはありません
+- Copilotの `rawEvent` は、正規化できたフィールド（`promptBody` など）以外にも、イベント源が送ってきた内容がそのまま含まれます。イベント源の実装次第でプロンプト・応答本文相当の情報が `rawEvent` にしか残らないケースもあるため、`showPromptBody` / `showResponseBody` を `false` にしても `rawEvent` 経由で本文相当の情報が見える可能性がある点に注意してください。保持自体を止めたい場合は `providers.copilot.rawEvent.enabled: false` を使用してください

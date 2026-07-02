@@ -6,6 +6,7 @@ import type {
   GitContext,
   MetricsEvent,
   PromptSubmittedEvent,
+  RawEvent,
   SessionCompletedEvent,
   SkillInfo,
   SourceAvailability,
@@ -56,11 +57,16 @@ function promptSubmitted(overrides: Partial<PromptSubmittedEvent> = {}): PromptS
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: null,
+    normalizationStatus: 'normalized',
     sourceAvailability: UNAVAILABLE,
-    gitContext: gitContext(),
-    raw: null,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     promptBody: null,
     ...overrides,
   };
@@ -77,13 +83,16 @@ function actionStarted(overrides: Partial<ActionStartedEvent> = {}): ActionStart
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: null,
+    normalizationStatus: 'normalized',
     sourceAvailability: UNAVAILABLE,
-    gitContext: gitContext(),
-    raw: null,
-    agentInfo: NO_AGENT,
-    skillInfo: NO_SKILL,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     ...overrides,
   };
 }
@@ -99,13 +108,16 @@ function actionCompleted(overrides: Partial<ActionCompletedEvent> = {}): ActionC
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: 'success',
+    normalizationStatus: 'normalized',
     sourceAvailability: UNAVAILABLE,
-    gitContext: gitContext(),
-    raw: null,
-    agentInfo: NO_AGENT,
-    skillInfo: NO_SKILL,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     tokenUsage: tokenUsage(),
     responseBody: null,
     ...overrides,
@@ -123,13 +135,16 @@ function actionFailed(overrides: Partial<ActionFailedEvent> = {}): ActionFailedE
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: 'error',
+    normalizationStatus: 'normalized',
     sourceAvailability: UNAVAILABLE,
-    gitContext: gitContext(),
-    raw: null,
-    agentInfo: NO_AGENT,
-    skillInfo: NO_SKILL,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     tokenUsage: tokenUsage(),
     responseBody: null,
     ...overrides,
@@ -146,15 +161,42 @@ function sessionCompleted(overrides: Partial<SessionCompletedEvent> = {}): Sessi
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: 'success',
+    normalizationStatus: 'normalized',
     sourceAvailability: UNAVAILABLE,
-    gitContext: gitContext(),
-    raw: null,
-    agentInfo: NO_AGENT,
-    skillInfo: NO_SKILL,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     tokenUsage: tokenUsage(),
     responseBody: null,
+    ...overrides,
+  };
+}
+
+function rawEvent(overrides: Partial<RawEvent> = {}): RawEvent {
+  return {
+    schemaVersion: '1.0',
+    eventId: nextId('evt'),
+    eventType: 'raw_event',
+    timestamp: '2026-07-01T00:00:00.000Z',
+    sessionId: 's1',
+    gitUserName: 'Alice',
+    userSlug: 'alice',
+    toolProvider: 'copilot',
+    providerEventName: 'inlineSuggestion.accepted',
+    modelRaw: null,
+    status: null,
+    normalizationStatus: 'raw_only',
+    sourceAvailability: UNAVAILABLE,
+    git: gitContext(),
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: { some: 'payload' },
+    rawEventTruncated: false,
     ...overrides,
   };
 }
@@ -186,7 +228,7 @@ describe('aggregateSessions', () => {
   });
 
   it('marks a session Uncommitted when no event carries a commit hash', () => {
-    const sessions = aggregateSessions([promptSubmitted({ gitContext: gitContext({ commitHash: null }) })]);
+    const sessions = aggregateSessions([promptSubmitted({ git: gitContext({ commitHash: null }) })]);
 
     expect(sessions[0].commitHash).toBeNull();
     expect(sessions[0].isUncommitted).toBe(true);
@@ -194,8 +236,8 @@ describe('aggregateSessions', () => {
 
   it('adopts a commit hash once any event in the session reports one', () => {
     const events = [
-      promptSubmitted({ gitContext: gitContext({ commitHash: null }) }),
-      sessionCompleted({ gitContext: gitContext({ commitHash: 'abc123' }) }),
+      promptSubmitted({ git: gitContext({ commitHash: null }) }),
+      sessionCompleted({ git: gitContext({ commitHash: 'abc123' }) }),
     ];
 
     const sessions = aggregateSessions(events);
@@ -289,9 +331,9 @@ describe('aggregateSessions', () => {
 
   it('collects distinct agent and skill names used across actions and session_completed', () => {
     const events = [
-      actionCompleted({ actionId: 'a1', agentInfo: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
-      actionCompleted({ actionId: 'a2', skillInfo: { used: true, name: 'code-review', sourcePath: null } }),
-      sessionCompleted({ agentInfo: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
+      actionCompleted({ actionId: 'a1', agent: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
+      actionCompleted({ actionId: 'a2', skill: { used: true, name: 'code-review', sourcePath: null } }),
+      sessionCompleted({ agent: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
     ];
 
     const sessions = aggregateSessions(events);
@@ -357,13 +399,72 @@ describe('aggregateSessions', () => {
     expect(byId['a1'].responseBody).toBe('it worked');
     expect(byId['a2'].responseBody).toBe('boom');
   });
+
+  it('counts raw_event events into the session instead of dropping them', () => {
+    const events = [
+      promptSubmitted({ sessionId: 's1' }),
+      rawEvent({ sessionId: 's1', providerEventName: 'inlineSuggestion.accepted' }),
+    ];
+
+    const sessions = aggregateSessions(events);
+
+    expect(sessions[0].eventCount).toBe(2);
+    expect(sessions[0].rawEventCount).toBe(1);
+    expect(sessions[0].rawOnlyEventCount).toBe(1);
+    expect(sessions[0].providerEventNames).toEqual(['inlineSuggestion.accepted']);
+    expect(sessions[0].normalizationStatuses.sort()).toEqual(['normalized', 'raw_only']);
+  });
+
+  it('keeps the raw_event payload verbatim in session.rawEvents', () => {
+    const events = [
+      rawEvent({
+        sessionId: 's1',
+        toolProvider: 'copilot',
+        providerEventName: 'inlineSuggestion.accepted',
+        rawEvent: { some: 'payload' },
+        rawEventTruncated: true,
+      }),
+    ];
+
+    const sessions = aggregateSessions(events);
+
+    expect(sessions[0].rawEvents).toEqual([
+      {
+        timestamp: '2026-07-01T00:00:00.000Z',
+        toolProvider: 'copilot',
+        providerEventName: 'inlineSuggestion.accepted',
+        normalizationStatus: 'raw_only',
+        rawEventTruncated: true,
+        rawEvent: { some: 'payload' },
+      },
+    ]);
+  });
+
+  it('counts rawEventTruncated regardless of eventType', () => {
+    const sessions = aggregateSessions([promptSubmitted({ rawEventTruncated: true })]);
+
+    expect(sessions[0].rawEventTruncatedCount).toBe(1);
+    expect(sessions[0].rawEventCount).toBe(0);
+  });
+
+  it('collects distinct providerEventNames across a session, ignoring nulls', () => {
+    const events = [
+      promptSubmitted({ providerEventName: 'UserPromptSubmit' }),
+      actionStarted({ providerEventName: 'PreToolUse' }),
+      actionStarted({ actionId: 'a2', providerEventName: null }),
+    ];
+
+    const sessions = aggregateSessions(events);
+
+    expect(sessions[0].providerEventNames).toEqual(['PreToolUse', 'UserPromptSubmit']);
+  });
 });
 
 describe('aggregateSummary', () => {
   it('buckets sessions with no commit under "Uncommitted"', () => {
     const sessions = aggregateSessions([
-      promptSubmitted({ sessionId: 's1', gitContext: gitContext({ commitHash: null }) }),
-      promptSubmitted({ sessionId: 's2', gitContext: gitContext({ commitHash: 'deadbeef' }) }),
+      promptSubmitted({ sessionId: 's1', git: gitContext({ commitHash: null }) }),
+      promptSubmitted({ sessionId: 's2', git: gitContext({ commitHash: 'deadbeef' }) }),
     ]);
 
     const summary = aggregateSummary(sessions, 2, '2026-07-02T00:00:00.000Z');
@@ -383,7 +484,7 @@ describe('aggregateSummary', () => {
 
   it('buckets sessions with no agent/skill under "none", and by name otherwise', () => {
     const sessions = aggregateSessions([
-      actionCompleted({ sessionId: 's1', agentInfo: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
+      actionCompleted({ sessionId: 's1', agent: { used: true, name: 'Explore', type: 'subagent', sourcePath: null } }),
       actionCompleted({ sessionId: 's2' }),
     ]);
 
@@ -408,13 +509,13 @@ describe('aggregateSummary', () => {
     const sessions = aggregateSessions([
       actionCompleted({
         sessionId: 's1',
-        gitContext: gitContext({ commitHash: 'c1' }),
+        git: gitContext({ commitHash: 'c1' }),
         sourceAvailability: AVAILABLE,
         tokenUsage: tokenUsage({ inputTokens: 100, cacheReadTokens: 50, outputTokens: 10, totalTokens: 160, tokenSource: 'reported' }),
       }),
       actionCompleted({
         sessionId: 's2',
-        gitContext: gitContext({ commitHash: 'c1' }),
+        git: gitContext({ commitHash: 'c1' }),
         sourceAvailability: AVAILABLE,
         tokenUsage: tokenUsage({ inputTokens: 50, cacheReadTokens: 0, outputTokens: 10, totalTokens: 60, tokenSource: 'reported' }),
       }),
@@ -463,5 +564,31 @@ describe('aggregateSummary', () => {
 
     expect(summary.overall.totalTokens).toBe(10);
     expect(summary.overall.tokenSource).toBe('reported');
+  });
+
+  it('includes raw_event events in overall totals and breaks them down by providerEventName/normalizationStatus', () => {
+    const sessions = aggregateSessions([
+      promptSubmitted({ sessionId: 's1' }),
+      rawEvent({ sessionId: 's1', providerEventName: 'inlineSuggestion.accepted' }),
+      rawEvent({ sessionId: 's2', providerEventName: 'inlineSuggestion.accepted', rawEventTruncated: true }),
+    ]);
+
+    const summary = aggregateSummary(sessions, 3, '2026-07-02T00:00:00.000Z');
+
+    expect(summary.overall.totalRawEvents).toBe(2);
+    expect(summary.overall.rawOnlyEventCount).toBe(2);
+    expect(summary.overall.rawEventTruncatedCount).toBe(1);
+    expect(Object.keys(summary.byProviderEventName)).toEqual(['inlineSuggestion.accepted']);
+    expect(summary.byProviderEventName['inlineSuggestion.accepted'].totalSessions).toBe(2);
+    expect(Object.keys(summary.byNormalizationStatus).sort()).toEqual(['normalized', 'raw_only']);
+    expect(summary.byNormalizationStatus['raw_only'].totalRawEvents).toBe(2);
+  });
+
+  it('buckets sessions with no providerEventName under "unknown"', () => {
+    const sessions = aggregateSessions([promptSubmitted({ providerEventName: null })]);
+
+    const summary = aggregateSummary(sessions, 1, '2026-07-02T00:00:00.000Z');
+
+    expect(Object.keys(summary.byProviderEventName)).toEqual(['unknown']);
   });
 });

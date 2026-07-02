@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordEvent, recordEventAsync } from './record-event.js';
-import type { GitContext, PromptSubmittedEvent, SourceAvailability } from './types.js';
+import type { AgentInfo, GitContext, PromptSubmittedEvent, SkillInfo, SourceAvailability } from './types.js';
 
 const GIT_CONTEXT: GitContext = {
   repoRootHash: 'repo-hash',
@@ -12,6 +12,9 @@ const GIT_CONTEXT: GitContext = {
   commitHash: null,
   commitLinkStrategy: 'since_previous_commit',
 };
+
+const NO_AGENT: AgentInfo = { used: false, name: null, type: null, sourcePath: null };
+const NO_SKILL: SkillInfo = { used: false, name: null, sourcePath: null };
 
 const SOURCE_AVAILABILITY: SourceAvailability = {
   tokenUsageAvailable: false,
@@ -33,11 +36,16 @@ function promptSubmittedDraft(
     gitUserName: 'Alice',
     userSlug,
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: null,
+    normalizationStatus: 'normalized',
     sourceAvailability: SOURCE_AVAILABILITY,
-    gitContext: GIT_CONTEXT,
-    raw: null,
+    git: GIT_CONTEXT,
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     promptBody: null,
     ...overrides,
   };
@@ -113,5 +121,28 @@ describe('recordEvent', () => {
       readFileSync(join(cwd, '.ai/metrics/events/alice/2026-07-02.jsonl'), 'utf8').trim(),
     );
     expect(persisted.modelRaw).toBe(rawText);
+  });
+
+  it('truncates rawEvent once it exceeds the configured maxBytes and flags rawEventTruncated', () => {
+    const oversized = { payload: 'x'.repeat(2_000_000) };
+    const event = recordEvent(
+      promptSubmittedDraft('alice', '2026-07-02T00:00:00.000Z', { rawEvent: oversized, rawEventTruncated: false }),
+      { cwd },
+    );
+
+    expect(event.rawEventTruncated).toBe(true);
+    expect(typeof event.rawEvent).toBe('string');
+    expect(Buffer.byteLength(event.rawEvent as string, 'utf8')).toBeLessThanOrEqual(1_048_576);
+  });
+
+  it('leaves rawEvent and rawEventTruncated untouched when under the configured maxBytes', () => {
+    const small = { hello: 'world' };
+    const event = recordEvent(
+      promptSubmittedDraft('alice', '2026-07-02T00:00:00.000Z', { rawEvent: small, rawEventTruncated: false }),
+      { cwd },
+    );
+
+    expect(event.rawEvent).toEqual(small);
+    expect(event.rawEventTruncated).toBe(false);
   });
 });

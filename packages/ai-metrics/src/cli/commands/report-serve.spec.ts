@@ -34,6 +34,16 @@ const SESSIONS = [
     sessionId: 's1',
     prompts: [{ timestamp: '2026-07-01T00:00:00.000Z', promptBody: 'hello there' }],
     actions: [{ actionId: 'a1', status: 'success', responseBody: 'the result' }],
+    rawEvents: [
+      {
+        timestamp: '2026-07-01T00:00:00.000Z',
+        toolProvider: 'copilot',
+        providerEventName: 'inlineSuggestion.accepted',
+        normalizationStatus: 'raw_only',
+        rawEventTruncated: false,
+        rawEvent: { some: 'payload' },
+      },
+    ],
   },
 ];
 
@@ -143,6 +153,19 @@ describe('runReportServe', () => {
 
     expect(sessions[0].prompts[0].promptBody).toBe('hello there');
     expect(sessions[0].actions[0].responseBody).toBeNull();
+  });
+
+  it('serves rawEvents verbatim regardless of showPromptBody/showResponseBody', async () => {
+    seedGeneratedReport(cwd);
+    writeConfig(cwd, { showPromptBody: false, showResponseBody: false });
+    server = await runReportServe({ cwd, port: 0 });
+
+    const { body: sessions } = await fetchJson<Array<{ rawEvents: Array<{ rawEvent: unknown; providerEventName: string }> }>>(
+      `http://localhost:${actualPort(server)}/api/sessions`,
+    );
+
+    expect(sessions[0].rawEvents[0].rawEvent).toEqual({ some: 'payload' });
+    expect(sessions[0].rawEvents[0].providerEventName).toBe('inlineSuggestion.accepted');
   });
 
   it('serves index.html with the display config injected', async () => {

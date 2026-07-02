@@ -11,7 +11,10 @@ export type {
   BuildReportOptions,
   BuildReportResult,
   ClaudeCodeAdapterOptions,
+  ClaudeCodeProviderConfig,
   CommitLinkStrategy,
+  CopilotProviderConfig,
+  CopilotRawEventConfig,
   GitContext,
   MainMetrics,
   MetricsConfig,
@@ -19,10 +22,11 @@ export type {
   MetricsEventBase,
   MetricsEventStatus,
   MetricsEventType,
+  NormalizationStatus,
   PromptSubmittedEvent,
   ProviderAdapter,
-  ProviderStatus,
   ProvidersConfig,
+  RawEvent,
   ReportAction,
   ReportConfig,
   ReportSession,
@@ -37,4 +41,4 @@ export type {
 } from './core/types.js';
 export { createClaudeCodeAdapter } from './providers/claude-code/index.js';
 export type { ClaudeCodeHookInput } from './providers/claude-code/index.js';
-export { buildReport, ReportBuildError } from './report/buildReport.js';
+export { buildReport, ReportBuildError } from './report/build-report.js';

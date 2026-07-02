@@ -1,9 +1,9 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { ClaudeCodeAdapterOptions } from '../../core/types.js';
-import { createClaudeCodeAdapter } from './adapter.js';
+import type { CopilotAdapterOptions } from '../../core/types.js';
+import { createCopilotHookAdapter } from './adapter.js';
 
-export interface RunHookEntryOptions extends ClaudeCodeAdapterOptions {
+export interface RunHookEntryOptions extends CopilotAdapterOptions {
   /** Mainly for tests; when omitted the hook payload is read from stdin. */
   input?: string;
 }
@@ -17,18 +17,18 @@ function readStdin(): string {
 }
 
 /**
- * What Claude Code actually runs as the hook command: read the JSON payload from stdin,
+ * What `.ai/metrics/hooks/copilot-hook.mjs` actually runs: read the JSON payload from stdin,
  * normalize and record it, and never let a failure surface as a non-zero exit or a thrown
- * error — only a stderr line.
+ * error — only a stderr WARN line.
  */
 export function runHookEntry(options: RunHookEntryOptions = {}): void {
   const { input, onError, ...adapterOptions } = options;
   const rawInput = input ?? readStdin();
 
-  const adapter = createClaudeCodeAdapter({
+  const adapter = createCopilotHookAdapter({
     ...adapterOptions,
     onError: (error) => {
-      console.error('[ai-metrics] WARN: claude-code hook error:', error instanceof Error ? error.message : error);
+      console.error('[ai-metrics] WARN: copilot hook error:', error instanceof Error ? error.message : error);
       onError?.(error);
     },
   });
@@ -55,12 +55,12 @@ function isMainModule(): boolean {
   }
 }
 
-/** Never lets a hook failure surface as a non-zero exit: Claude Code would otherwise treat it as a blocking hook error. */
+/** Never lets a hook failure surface as a non-zero exit. */
 if (isMainModule()) {
   try {
     runHookEntry();
   } catch (error) {
-    console.error('[ai-metrics] WARN: unexpected claude-code hook error:', error instanceof Error ? error.message : error);
+    console.error('[ai-metrics] WARN: unexpected copilot hook error:', error instanceof Error ? error.message : error);
   } finally {
     process.exit(0);
   }

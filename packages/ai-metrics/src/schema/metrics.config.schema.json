@@ -49,15 +49,40 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "claude-code": {
-          "type": "string",
-          "enum": ["enabled", "experimental", "disabled"],
-          "default": "enabled"
+        "claudeCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            }
+          }
         },
         "copilot": {
-          "type": "string",
-          "enum": ["enabled", "experimental", "disabled"],
-          "default": "experimental"
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "rawEvent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "maxBytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1048576
+                }
+              }
+            }
+          }
         }
       }
     }

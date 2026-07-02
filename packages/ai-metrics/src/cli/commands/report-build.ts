@@ -1,4 +1,4 @@
-import { buildReport } from '../../report/buildReport.js';
+import { buildReport } from '../../report/build-report.js';
 
 export interface RunReportBuildOptions {
   cwd?: string;

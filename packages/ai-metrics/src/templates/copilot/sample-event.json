@@ -1,0 +1,5 @@
+{
+  "sessionId": "example-session-id",
+  "promptBody": "Explain what this function does",
+  "modelRaw": "copilot-chat"
+}

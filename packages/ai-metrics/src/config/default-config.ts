@@ -15,8 +15,16 @@ export const DEFAULT_CONFIG: MetricsConfig = {
   showResponseBody: true,
   markdownRendering: false,
   providers: {
-    'claude-code': 'enabled',
-    copilot: 'experimental',
+    claudeCode: {
+      enabled: true,
+    },
+    copilot: {
+      enabled: true,
+      rawEvent: {
+        enabled: true,
+        maxBytes: 1048576,
+      },
+    },
   },
 };
 

@@ -4,18 +4,36 @@ import { z } from 'zod';
 import type { MetricsConfig } from '../core/types.js';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_FILE_NAME, DEFAULT_METRICS_ROOT } from './default-config.js';
 
-const providerStatusSchema = z.enum(['enabled', 'experimental', 'disabled']);
-
 const reportConfigSchema = z
   .object({
     port: z.number().int().min(1).max(65535),
   })
   .partial();
 
+const claudeCodeProviderConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+  })
+  .partial();
+
+const copilotRawEventConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    maxBytes: z.number().int().positive(),
+  })
+  .partial();
+
+const copilotProviderConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    rawEvent: copilotRawEventConfigSchema,
+  })
+  .partial();
+
 const providersConfigSchema = z
   .object({
-    'claude-code': providerStatusSchema,
-    copilot: providerStatusSchema,
+    claudeCode: claudeCodeProviderConfigSchema,
+    copilot: copilotProviderConfigSchema,
   })
   .partial();
 

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { findRepoRoot } from './repo-root.js';
 import { sha1Hex } from './hash.js';
 import type { GitContext } from './types.js';
 
@@ -12,12 +13,18 @@ export function runGitCommand(args: string[], cwd: string): string | null {
   }
 }
 
+/**
+ * A hook's cwd may be a subdirectory rather than the repo root, so the root is located first (via
+ * a plain filesystem walk, not a git subprocess) and all git commands then run from there.
+ * Never throws — an unresolvable root simply produces "unknown" fields.
+ */
 export function resolveGitContext(cwd: string): GitContext {
-  const repoRoot = runGitCommand(['rev-parse', '--show-toplevel'], cwd);
-  const branch = runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-  const headCommit = runGitCommand(['rev-parse', 'HEAD'], cwd);
+  const { root } = findRepoRoot(cwd);
 
-  const repoRootHash = repoRoot ? sha1Hex(repoRoot) : 'unknown';
+  const branch = root ? runGitCommand(['rev-parse', '--abbrev-ref', 'HEAD'], root) : null;
+  const headCommit = root ? runGitCommand(['rev-parse', 'HEAD'], root) : null;
+
+  const repoRootHash = root ? sha1Hex(root) : 'unknown';
   const branchName = branch ?? 'unknown';
   const baseCommitHash = headCommit ?? 'unknown';
 

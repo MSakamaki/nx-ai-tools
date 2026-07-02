@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ReportBuildError } from '../../report/buildReport.js';
+import { ReportBuildError } from '../../report/build-report.js';
 import { runReportBuild } from './report-build.js';
 
 describe('runReportBuild', () => {

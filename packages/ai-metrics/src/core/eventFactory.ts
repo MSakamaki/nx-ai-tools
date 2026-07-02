@@ -6,6 +6,7 @@ import type {
   MetricsEvent,
   MetricsEventStatus,
   MetricsEventType,
+  NormalizationStatus,
   SkillInfo,
   SourceAvailability,
   ToolProvider,
@@ -18,13 +19,16 @@ export interface EventFactoryInput {
   gitUserName: string;
   userSlug: string;
   toolProvider: ToolProvider;
+  providerEventName?: string | null;
   modelRaw: string | null;
   status: MetricsEventStatus | null;
-  gitContext: GitContext;
-  raw?: unknown;
+  normalizationStatus?: NormalizationStatus;
+  git: GitContext;
+  rawEvent?: unknown;
+  rawEventTruncated?: boolean;
   sourceAvailability?: Partial<SourceAvailability>;
-  agentInfo?: AgentInfo;
-  skillInfo?: SkillInfo;
+  agent?: AgentInfo;
+  skill?: SkillInfo;
   tokenUsage?: TokenUsage;
   promptBody?: string | null;
   responseBody?: string | null;
@@ -57,10 +61,15 @@ export function createMetricsEventDraft(eventType: MetricsEventType, input: Even
     gitUserName: input.gitUserName,
     userSlug: input.userSlug,
     toolProvider: input.toolProvider,
+    providerEventName: input.providerEventName ?? null,
     modelRaw: input.modelRaw,
     status: input.status,
-    gitContext: input.gitContext,
-    raw: input.raw ?? null,
+    normalizationStatus: input.normalizationStatus ?? 'normalized',
+    git: input.git,
+    agent: input.agent ?? DEFAULT_AGENT_INFO,
+    skill: input.skill ?? DEFAULT_SKILL_INFO,
+    rawEvent: input.rawEvent ?? null,
+    rawEventTruncated: input.rawEventTruncated ?? false,
     sourceAvailability: { ...DEFAULT_SOURCE_AVAILABILITY, ...input.sourceAvailability },
   };
 
@@ -68,21 +77,13 @@ export function createMetricsEventDraft(eventType: MetricsEventType, input: Even
     case 'prompt_submitted':
       return { ...common, eventType, actionId: input.actionId, promptBody: input.promptBody ?? null };
     case 'action_started':
-      return {
-        ...common,
-        eventType,
-        actionId: input.actionId ?? randomUUID(),
-        agentInfo: input.agentInfo ?? DEFAULT_AGENT_INFO,
-        skillInfo: input.skillInfo ?? DEFAULT_SKILL_INFO,
-      };
+      return { ...common, eventType, actionId: input.actionId ?? randomUUID() };
     case 'action_completed':
     case 'action_failed':
       return {
         ...common,
         eventType,
         actionId: input.actionId ?? randomUUID(),
-        agentInfo: input.agentInfo ?? DEFAULT_AGENT_INFO,
-        skillInfo: input.skillInfo ?? DEFAULT_SKILL_INFO,
         tokenUsage: input.tokenUsage ?? DEFAULT_TOKEN_USAGE,
         responseBody: input.responseBody ?? null,
       };
@@ -91,10 +92,10 @@ export function createMetricsEventDraft(eventType: MetricsEventType, input: Even
         ...common,
         eventType,
         actionId: input.actionId,
-        agentInfo: input.agentInfo ?? DEFAULT_AGENT_INFO,
-        skillInfo: input.skillInfo ?? DEFAULT_SKILL_INFO,
         tokenUsage: input.tokenUsage ?? DEFAULT_TOKEN_USAGE,
         responseBody: input.responseBody ?? null,
       };
+    case 'raw_event':
+      return { ...common, eventType, actionId: input.actionId };
   }
 }

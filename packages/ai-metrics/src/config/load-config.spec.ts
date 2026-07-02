@@ -23,7 +23,7 @@ describe('loadConfig', () => {
     mkdirSync(join(cwd, '.ai/metrics'), { recursive: true });
     writeFileSync(
       join(cwd, '.ai/metrics/metrics.config.json'),
-      JSON.stringify({ report: { port: 9999 }, providers: { copilot: 'disabled' } }),
+      JSON.stringify({ report: { port: 9999 }, providers: { copilot: { enabled: false } } }),
     );
 
     const config = loadConfig({ cwd });
@@ -31,8 +31,23 @@ describe('loadConfig', () => {
     expect(config).toEqual({
       ...DEFAULT_CONFIG,
       report: { port: 9999 },
-      providers: { 'claude-code': 'enabled', copilot: 'disabled' },
+      providers: {
+        claudeCode: { enabled: true },
+        copilot: { enabled: false, rawEvent: { enabled: true, maxBytes: 1048576 } },
+      },
     });
+  });
+
+  it('deep-merges a nested override onto providers.copilot.rawEvent without dropping siblings', () => {
+    mkdirSync(join(cwd, '.ai/metrics'), { recursive: true });
+    writeFileSync(
+      join(cwd, '.ai/metrics/metrics.config.json'),
+      JSON.stringify({ providers: { copilot: { rawEvent: { maxBytes: 2048 } } } }),
+    );
+
+    const config = loadConfig({ cwd });
+
+    expect(config.providers.copilot).toEqual({ enabled: true, rawEvent: { enabled: true, maxBytes: 2048 } });
   });
 
   it('throws a MetricsConfigError when the config file is not valid JSON', () => {

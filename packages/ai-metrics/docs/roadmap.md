@@ -4,17 +4,18 @@
 
 ## MVP（現状で実現していること）
 
-- Claude Codeからのイベント記録（`createClaudeCodeAdapter`、`ai-metrics init` によるhook自動設定）
-- JSONLへのイベント記録（`recordEvent`、schemaVersion "1.0"）
-- `ai-metrics report build` によるsummary/sessionsの集計生成
-- `ai-metrics report serve` によるローカルHTMLレポート（Overview / Prompt View / Commit View / Provider-Model View / Agent-Skill View）
-- `ai-metrics doctor` による読み取り専用の診断
-- Copilotの experimental adapter interface（実データ取得手段は未提供）
+- Claude Codeからのイベント記録（`createClaudeCodeAdapter`、`ai-metrics init --provider claude-code` によるhook自動設定）
+- Copilotの experimental / project hooks template（`.github/hooks/ai-metrics.json` + `copilot-hook.mjs`、`createCopilotHookAdapter`、イベント名マッピングは `adapter.config.json` で設定可能。未知イベントは `raw_event` として保持）
+- `ai-metrics init` のprovider選択（`--provider`、省略時はTTYで対話式チェックボックス・非TTYでは `claude-code` のみ）
+- JSONLへのイベント記録（`recordEvent`、schemaVersion "1.0"）、`rawEvent` のサイズ上限・切り詰め（`providers.copilot.rawEvent.maxBytes`）
+- `ai-metrics report build` によるsummary/sessionsの集計生成（provider/providerEventName/model/commit/agent/skill/normalizationStatus別のbreakdown、raw event件数を含む）
+- `ai-metrics report serve` によるローカルHTMLレポート（Overview / Prompt View / Commit View / Provider / Model View / Agent / Skill View / Raw Events View）
+- `ai-metrics doctor` による読み取り専用の診断（`--provider` によるprovider別診断、Copilot明示指定時の必須ファイルチェック）
 - changesets + GitHub Releaseによるnpm publishフロー
 
 ## Next（比較的近い将来に検討する項目）
 
-- **Copilot adapterの拡張**: 実際のテレメトリ取得手段（VS Code拡張やOpenTelemetry collectorとの連携など）が利用可能になった場合の統合。既存の `ProviderAdapter` 契約を維持したまま実データを供給する形を想定
+- **Copilotの実データ取得手段の拡充**: 現状は「project hooks template」としてユーザー自身がイベント源を配線する前提。VS Code拡張やOpenTelemetry collectorなど、より自動化された取得手段が実現した場合の統合を検討する。既存の `ProviderAdapter` 契約・`adapter.config.json` の設定インターフェースを維持したまま拡張する想定
 - CLIコマンドの詳細リファレンスドキュメント（現状README/ソースのhelpに依存している部分の切り出し）
 
 ## Future（構想段階、着手時期未定）

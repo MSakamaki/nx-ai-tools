@@ -50,12 +50,14 @@ describe('createClaudeCodeAdapter', () => {
     expect(event?.status).toBe('error');
   });
 
-  it('ignores hook events it does not recognize', () => {
+  it('records hook events it does not recognize as a raw_event, not silently dropped', () => {
     const adapter = createClaudeCodeAdapter({ cwd });
 
     const event = adapter.handleInput(JSON.stringify({ hook_event_name: 'Notification', session_id: 'abc' }));
 
-    expect(event).toBeUndefined();
+    expect(event?.eventType).toBe('raw_event');
+    expect(event?.normalizationStatus).toBe('raw_only');
+    expect(event?.providerEventName).toBe('Notification');
   });
 
   it('swallows malformed input instead of throwing', () => {
@@ -74,6 +76,6 @@ describe('createClaudeCodeAdapter', () => {
     );
 
     expect(event && 'promptBody' in event ? event.promptBody : undefined).toBe('line1\nline2 日本語');
-    expect(event?.raw).toEqual({ hook_event_name: 'UserPromptSubmit', session_id: 'abc', prompt: 'line1\nline2 日本語' });
+    expect(event?.rawEvent).toEqual({ hook_event_name: 'UserPromptSubmit', session_id: 'abc', prompt: 'line1\nline2 日本語' });
   });
 });

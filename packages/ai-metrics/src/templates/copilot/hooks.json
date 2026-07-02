@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "userPromptSubmitted" }
+    },
+    "preToolUse": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "preToolUse" }
+    },
+    "postToolUse": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "postToolUse" }
+    },
+    "errorOccurred": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "errorOccurred" }
+    },
+    "agentStop": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "agentStop" }
+    },
+    "sessionEnd": {
+      "command": "node .ai/metrics/hooks/copilot-hook.mjs",
+      "env": { "AI_METRICS_PROVIDER": "copilot", "AI_METRICS_HOOK_EVENT": "sessionEnd" }
+    }
+  }
+}

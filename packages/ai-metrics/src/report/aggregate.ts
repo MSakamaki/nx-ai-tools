@@ -6,6 +6,7 @@ import type {
   MetricsEventStatus,
   ReportAction,
   ReportPrompt,
+  ReportRawEvent,
   ReportSession,
   ReportSummary,
   TokenSource,
@@ -17,6 +18,7 @@ const UNCOMMITTED_KEY = 'Uncommitted';
 const UNKNOWN_MODEL_KEY = 'unknown';
 const NO_AGENT_KEY = 'none';
 const NO_SKILL_KEY = 'none';
+const UNKNOWN_PROVIDER_EVENT_NAME_KEY = 'unknown';
 
 function emptyTokenTotals(): TokenTotals {
   return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 };
@@ -119,6 +121,12 @@ interface SessionAccumulator {
   sessionCompletedTokens: ResolvedTokens | null;
   agentNames: Set<string>;
   skillNames: Set<string>;
+  providerEventNames: Set<string>;
+  normalizationStatuses: Set<string>;
+  rawEventCount: number;
+  rawOnlyEventCount: number;
+  rawEventTruncatedCount: number;
+  rawEvents: ReportRawEvent[];
 }
 
 function getOrCreateAction(session: SessionAccumulator, actionId: string): ActionAccumulator {
@@ -176,8 +184,8 @@ export function aggregateSessions(events: MetricsEvent[]): ReportSession[] {
         gitUserName: event.gitUserName,
         provider: event.toolProvider,
         modelRaw: event.modelRaw,
-        branch: event.gitContext.branch,
-        commitHash: event.gitContext.commitHash,
+        branch: event.git.branch,
+        commitHash: event.git.commitHash,
         firstTimestamp: event.timestamp,
         lastTimestamp: event.timestamp,
         eventCount: 0,
@@ -187,6 +195,12 @@ export function aggregateSessions(events: MetricsEvent[]): ReportSession[] {
         sessionCompletedTokens: null,
         agentNames: new Set(),
         skillNames: new Set(),
+        providerEventNames: new Set(),
+        normalizationStatuses: new Set(),
+        rawEventCount: 0,
+        rawOnlyEventCount: 0,
+        rawEventTruncatedCount: 0,
+        rawEvents: [],
       };
       sessions.set(event.sessionId, session);
     }
@@ -205,11 +219,24 @@ export function aggregateSessions(events: MetricsEvent[]): ReportSession[] {
     if (event.modelRaw) {
       session.modelRaw = event.modelRaw;
     }
-    if (event.gitContext.commitHash) {
-      session.commitHash = event.gitContext.commitHash;
+    if (event.git.commitHash) {
+      session.commitHash = event.git.commitHash;
     }
-    if (event.gitContext.branch !== 'unknown') {
-      session.branch = event.gitContext.branch;
+    if (event.git.branch !== 'unknown') {
+      session.branch = event.git.branch;
+    }
+    if (event.providerEventName) {
+      session.providerEventNames.add(event.providerEventName);
+    }
+    session.normalizationStatuses.add(event.normalizationStatus);
+    if (event.eventType === 'raw_event') {
+      session.rawEventCount += 1;
+    }
+    if (event.normalizationStatus === 'raw_only') {
+      session.rawOnlyEventCount += 1;
+    }
+    if (event.rawEventTruncated) {
+      session.rawEventTruncatedCount += 1;
     }
 
     switch (event.eventType) {
@@ -219,14 +246,14 @@ export function aggregateSessions(events: MetricsEvent[]): ReportSession[] {
         break;
       case 'action_started': {
         const action = getOrCreateAction(session, event.actionId);
-        applyAgentSkill(session, action, event.agentInfo, event.skillInfo);
+        applyAgentSkill(session, action, event.agent, event.skill);
         action.startedAt = event.timestamp;
         break;
       }
       case 'action_completed':
       case 'action_failed': {
         const action = getOrCreateAction(session, event.actionId);
-        applyAgentSkill(session, action, event.agentInfo, event.skillInfo);
+        applyAgentSkill(session, action, event.agent, event.skill);
         action.status = event.status;
         action.completedAt = event.timestamp;
         action.tokens = resolveEventTokens(event);
@@ -235,12 +262,30 @@ export function aggregateSessions(events: MetricsEvent[]): ReportSession[] {
       }
       case 'session_completed': {
         session.sessionCompletedTokens = resolveEventTokens(event);
-        if (event.agentInfo.used && event.agentInfo.name) {
-          session.agentNames.add(event.agentInfo.name);
+        if (event.agent.used && event.agent.name) {
+          session.agentNames.add(event.agent.name);
         }
-        if (event.skillInfo.used && event.skillInfo.name) {
-          session.skillNames.add(event.skillInfo.name);
+        if (event.skill.used && event.skill.name) {
+          session.skillNames.add(event.skill.name);
         }
+        break;
+      }
+      case 'raw_event': {
+        // No action/prompt shape to attach to — still worth surfacing agent/skill usage if present.
+        if (event.agent.used && event.agent.name) {
+          session.agentNames.add(event.agent.name);
+        }
+        if (event.skill.used && event.skill.name) {
+          session.skillNames.add(event.skill.name);
+        }
+        session.rawEvents.push({
+          timestamp: event.timestamp,
+          toolProvider: event.toolProvider,
+          providerEventName: event.providerEventName,
+          normalizationStatus: event.normalizationStatus,
+          rawEventTruncated: event.rawEventTruncated,
+          rawEvent: event.rawEvent,
+        });
         break;
       }
     }
@@ -309,8 +354,14 @@ function finalizeSession(session: SessionAccumulator): ReportSession {
     skillNames: [...session.skillNames].sort(),
     tokenUsage: tokens?.totals ?? null,
     tokenSource: tokens?.source ?? 'unknown',
+    providerEventNames: [...session.providerEventNames].sort(),
+    normalizationStatuses: [...session.normalizationStatuses].sort(),
+    rawEventCount: session.rawEventCount,
+    rawOnlyEventCount: session.rawOnlyEventCount,
+    rawEventTruncatedCount: session.rawEventTruncatedCount,
     prompts: [...session.prompts].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
     actions,
+    rawEvents: [...session.rawEvents].sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
   };
 }
 
@@ -319,6 +370,9 @@ function computeMainMetrics(sessions: ReportSession[]): MainMetrics {
   const totalActions = sessions.reduce((sum, session) => sum + session.totalActions, 0);
   const failedActions = sessions.reduce((sum, session) => sum + session.failedActions, 0);
   const uncommittedSessions = sessions.filter((session) => session.isUncommitted).length;
+  const totalRawEvents = sessions.reduce((sum, session) => sum + session.rawEventCount, 0);
+  const rawOnlyEventCount = sessions.reduce((sum, session) => sum + session.rawOnlyEventCount, 0);
+  const rawEventTruncatedCount = sessions.reduce((sum, session) => sum + session.rawEventTruncatedCount, 0);
   const distinctCommits = new Set(
     sessions.filter((session) => session.commitHash !== null).map((session) => session.commitHash as string),
   ).size;
@@ -359,6 +413,9 @@ function computeMainMetrics(sessions: ReportSession[]): MainMetrics {
     actionsPerSession: totalSessions > 0 ? totalActions / totalSessions : null,
     failedActionRate: totalActions > 0 ? failedActions / totalActions : null,
     uncommittedSessions,
+    totalRawEvents,
+    rawOnlyEventCount,
+    rawEventTruncatedCount,
   };
 }
 
@@ -381,7 +438,7 @@ function buildBreakdown(sessions: ReportSession[], keysFor: (session: ReportSess
   return breakdown;
 }
 
-/** Builds the cross-cutting breakdowns (user/date/provider/model/commit/agent/skill) from already-aggregated sessions. */
+/** Builds the cross-cutting breakdowns (user/date/provider/providerEventName/model/commit/agent/skill/normalizationStatus) from already-aggregated sessions. */
 export function aggregateSummary(sessions: ReportSession[], totalEvents: number, generatedAt: string): ReportSummary {
   const byUserGroups = groupBy(sessions, (session) => [session.userSlug]);
   const byUser: Record<string, MainMetrics & { gitUserName: string }> = {};
@@ -397,10 +454,14 @@ export function aggregateSummary(sessions: ReportSession[], totalEvents: number,
     byUser,
     byDate: buildBreakdown(sessions, (session) => [session.date]),
     byProvider: buildBreakdown(sessions, (session) => [session.provider]),
+    byProviderEventName: buildBreakdown(sessions, (session) =>
+      session.providerEventNames.length > 0 ? session.providerEventNames : [UNKNOWN_PROVIDER_EVENT_NAME_KEY],
+    ),
     byModel: buildBreakdown(sessions, (session) => [session.modelRaw ?? UNKNOWN_MODEL_KEY]),
     byCommit: buildBreakdown(sessions, (session) => [session.commitHash ?? UNCOMMITTED_KEY]),
     byAgent: buildBreakdown(sessions, (session) => (session.agentNames.length > 0 ? session.agentNames : [NO_AGENT_KEY])),
     bySkill: buildBreakdown(sessions, (session) => (session.skillNames.length > 0 ? session.skillNames : [NO_SKILL_KEY])),
+    byNormalizationStatus: buildBreakdown(sessions, (session) => session.normalizationStatuses),
   };
 }
 
@@ -408,9 +469,7 @@ export function aggregateSummary(sessions: ReportSession[], totalEvents: number,
 export function collectGitContextWarnings(events: MetricsEvent[]): string[] {
   const unresolvedCount = events.filter(
     (event) =>
-      event.gitContext.repoRootHash === 'unknown' ||
-      event.gitContext.branch === 'unknown' ||
-      event.gitContext.baseCommitHash === 'unknown',
+      event.git.repoRootHash === 'unknown' || event.git.branch === 'unknown' || event.git.baseCommitHash === 'unknown',
   ).length;
 
   if (unresolvedCount === 0) {

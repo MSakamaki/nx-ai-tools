@@ -6,7 +6,7 @@
 
 - **session単位**: 1回のユーザー入力→AI応答のやり取り全体（`sessionId` で識別）
 - **action単位**: session内の1回のAI応答/処理単位（`actionId` で識別、`action_started` / `action_completed` / `action_failed` の3イベントで構成される）
-- **commit単位**: `gitContext.commitHash` によって、そのcommitに含まれた変更に対応するsessionをグルーピングしたもの。`commitHash` が `null` のsessionは `Uncommitted` として別枠で扱われる
+- **commit単位**: `git.commitHash` によって、そのcommitに含まれた変更に対応するsessionをグルーピングしたもの。`commitHash` が `null` のsessionは `Uncommitted` として別枠で扱われる
 
 ## 基本カウント指標
 
@@ -16,6 +16,9 @@
 | `totalActions` | 対象範囲内で完了（`action_completed` または `action_failed`）したaction数。`action_started` のみで完了していないactionはカウントされない |
 | `uncommittedSessions` | `commitHash` が `null` のまま（=まだcommitに紐付いていない）session数 |
 | `failedActionRate` | `action_failed` で終わったactionの割合。`totalActions` が0の場合は `null` |
+| `totalRawEvents` | `eventType: "raw_event"` のイベント数（正規化できず生payloadのまま保持されたイベント） |
+| `rawOnlyEventCount` | `normalizationStatus: "raw_only"` のイベント数（現状は `totalRawEvents` と一致するが、意味的に異なる指標として区別している） |
+| `rawEventTruncatedCount` | `rawEventTruncated: true` のイベント数（`providers.copilot.rawEvent.maxBytes` を超えて切り詰められた件数） |
 
 ## トークン指標
 
@@ -42,28 +45,31 @@
 
 ## Breakdown軸（provider/model/agent/skill別の見方）
 
-`summary.json` は `overall` に加えて、以下の軸ごとに同じメトリクス（`MainMetrics`）を持ちます。
+`summary.json` は `overall` に加えて、以下の軸ごとに同じメトリクス（`MainMetrics`、上記のトークン指標・raw event指標をすべて含む）を持ちます。
 
 | 軸 | フィールド名 | 用途 |
 | --- | --- | --- |
 | ユーザー別 | `byUser` | 開発者本人がどのユーザーになるかを軸に振り返る（`gitUserName` を保持） |
 | 日付別 | `byDate` | 日ごとの利用傾向・トークン消費の変化を見る |
-| provider別 | `byProvider` | Claude Code / Copilot など、provider間の傾向の違いを見る（[provider-strategy.md](provider-strategy.md) の「無理に統一比較しない」方針に基づき、あくまで参考情報として扱う） |
+| provider別 | `byProvider` | `claude-code` / `copilot` / `unknown` 間の傾向の違いを見る（[provider-strategy.md](provider-strategy.md) の「無理に統一比較しない」方針に基づき、あくまで参考情報として扱う） |
+| providerイベント名別 | `byProviderEventName` | providerが報告する元のイベント名（例: Claude Codeの `PreToolUse`、Copilotの独自イベント名）別の傾向を見る。`providerEventName` が無いイベントは `"unknown"` キーにまとめる |
 | モデル別 | `byModel` | `modelRaw`（provider報告の生のモデル識別子）別の傾向を見る |
 | commit別 | `byCommit` | どのcommitにどれだけのAIリソースが投じられたかを見る |
-| agent別 | `byAgent` | 使用されたagent（`agentInfo.name`）別の傾向を見る |
-| skill別 | `bySkill` | 使用されたskill（`skillInfo.name`）別の傾向を見る |
+| agent別 | `byAgent` | 使用されたagent（`agent.name`）別の傾向を見る |
+| skill別 | `bySkill` | 使用されたskill（`skill.name`）別の傾向を見る |
+| 正規化状態別 | `byNormalizationStatus` | `normalized` / `partial` / `raw_only` / `failed` 別に件数・トークンなどを見る。正規化に失敗したイベントがどれだけあるかを把握するための軸 |
 
 `byCommit` は `commitHash` が `null` のsessionを `"Uncommitted"` キーにまとめます。`byAgent` / `bySkill` は、agent/skillを使用しなかったsessionを `"none"` キーにまとめます。
 
 いずれの軸も、対象イベントで値が観測できなかった場合は集計対象から除外され、該当メトリクスは `null` になります（推定して埋めることはしません）。
 
-## prompt本文/response本文の折りたたみ表示
+## prompt本文/response本文/rawEventの折りたたみ表示
 
-`sessions.json` の各sessionは、そのsession内の全 `prompts`（`ReportPrompt`: `timestamp` + `promptBody`）と全 `actions`（`ReportAction`: 状態・agent/skill・トークン・`responseBody` など）をそのまま保持します。
+`sessions.json` の各sessionは、そのsession内の全 `prompts`（`ReportPrompt`: `timestamp` + `promptBody`）、全 `actions`（`ReportAction`: 状態・agent/skill・トークン・`responseBody` など）、全 `rawEvents`（`ReportRawEvent`: `timestamp` / `toolProvider` / `providerEventName` / `normalizationStatus` / `rawEventTruncated` / `rawEvent`）をそのまま保持します。
 
 - `promptBody` / `responseBody` は、`metrics.config.json` の `showPromptBody` / `showResponseBody` が `false` の場合は `null` になります（JSONLファイル自体は変更されず、レポートAPI/UI側でのみ非表示になります）
-- `report serve` のUIでは、これらの本文はデフォルトで折りたたみ表示され、必要なときだけ展開して確認する形になっています
+- `rawEvent` はこの設定の対象外で、常にそのまま返されます（保持有無・サイズ上限は `providers.copilot.rawEvent.enabled` / `maxBytes` で制御。詳細は [provider-strategy.md](provider-strategy.md)）
+- `report serve` のUIでは、これらの本文・payloadはデフォルトで折りたたみ表示され（prompt/response本文は一覧では先頭200文字までのプレビュー）、必要なときだけ展開して確認する形になっています
 
 ## HTML reportで表示するビュー
 
@@ -71,8 +77,9 @@
 
 | ビュー | 内容 |
 | --- | --- |
-| Overview | `overall` のメトリクスサマリー |
+| Overview | `overall` のメトリクスサマリー（raw event件数・切り詰め件数を含む） |
 | Prompt View | session/action単位のプロンプト・応答本文の一覧（折りたたみ表示） |
 | Commit View | commit別の集計（`byCommit`）、`Uncommitted` セッションの一覧 |
-| Provider-Model View | provider別・モデル別の集計（`byProvider` / `byModel`） |
-| Agent-Skill View | agent別・skill別の集計（`byAgent` / `bySkill`） |
+| Provider / Model View | provider別・モデル別の集計（`byProvider` / `byModel`、`claude-code` / `copilot` / `unknown` を固定表示） |
+| Agent / Skill View | agent別・skill別の集計（`byAgent` / `bySkill`） |
+| Raw Events View | `byProviderEventName` / `byNormalizationStatus`（`normalized` / `partial` / `raw_only` / `failed` を固定表示）の集計と、個々の `raw_event` の一覧（折りたたみ表示）。Copilotのraw eventにはexperimentalであることを示すバッジが付く |

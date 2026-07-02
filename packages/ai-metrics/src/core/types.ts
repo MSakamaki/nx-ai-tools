@@ -7,9 +7,17 @@ export type MetricsEventType =
   | 'action_started'
   | 'action_completed'
   | 'action_failed'
-  | 'session_completed';
+  | 'session_completed'
+  | 'raw_event';
 
 export type MetricsEventStatus = 'success' | 'error' | 'cancelled';
+
+/**
+ * How far normalization got: `normalized` (full mapping succeeded), `partial` (some fields
+ * unavailable), `raw_only` (kept as a `raw_event` because normalization was not possible), or
+ * `failed` (normalization threw / produced nothing usable).
+ */
+export type NormalizationStatus = 'normalized' | 'partial' | 'raw_only' | 'failed';
 
 export type TokenSource = 'reported' | 'estimated' | 'unknown';
 
@@ -65,12 +73,19 @@ export interface MetricsEventBase {
   gitUserName: string;
   userSlug: string;
   toolProvider: ToolProvider;
+  /** The provider's own name for this event (e.g. a Claude Code hook name), verbatim. `null` when the provider doesn't expose one. */
+  providerEventName: string | null;
   modelRaw: string | null;
   status: MetricsEventStatus | null;
+  normalizationStatus: NormalizationStatus;
   sourceAvailability: SourceAvailability;
-  gitContext: GitContext;
+  git: GitContext;
+  agent: AgentInfo;
+  skill: SkillInfo;
   /** The unprocessed provider payload this event was normalized from, kept for debugging/reprocessing. */
-  raw: unknown;
+  rawEvent: unknown;
+  /** True when `rawEvent` was truncated before being stored (e.g. to bound payload size). */
+  rawEventTruncated: boolean;
 }
 
 export interface PromptSubmittedEvent extends MetricsEventBase {
@@ -81,15 +96,11 @@ export interface PromptSubmittedEvent extends MetricsEventBase {
 export interface ActionStartedEvent extends MetricsEventBase {
   eventType: 'action_started';
   actionId: string;
-  agentInfo: AgentInfo;
-  skillInfo: SkillInfo;
 }
 
 export interface ActionCompletedEvent extends MetricsEventBase {
   eventType: 'action_completed';
   actionId: string;
-  agentInfo: AgentInfo;
-  skillInfo: SkillInfo;
   tokenUsage: TokenUsage;
   responseBody: string | null;
 }
@@ -97,8 +108,6 @@ export interface ActionCompletedEvent extends MetricsEventBase {
 export interface ActionFailedEvent extends MetricsEventBase {
   eventType: 'action_failed';
   actionId: string;
-  agentInfo: AgentInfo;
-  skillInfo: SkillInfo;
   tokenUsage: TokenUsage;
   responseBody: string | null;
 }
@@ -106,9 +115,12 @@ export interface ActionFailedEvent extends MetricsEventBase {
 export interface SessionCompletedEvent extends MetricsEventBase {
   eventType: 'session_completed';
   tokenUsage: TokenUsage;
-  agentInfo: AgentInfo;
-  skillInfo: SkillInfo;
   responseBody: string | null;
+}
+
+/** Holds a Copilot-unrecognized or otherwise unnormalizable payload verbatim, instead of dropping it. */
+export interface RawEvent extends MetricsEventBase {
+  eventType: 'raw_event';
 }
 
 export type MetricsEvent =
@@ -116,20 +128,34 @@ export type MetricsEvent =
   | ActionStartedEvent
   | ActionCompletedEvent
   | ActionFailedEvent
-  | SessionCompletedEvent;
+  | SessionCompletedEvent
+  | RawEvent;
 
 /** `Omit` does not distribute over a union by itself; this keeps each variant's extra fields intact. */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
-export type ProviderStatus = 'enabled' | 'experimental' | 'disabled';
 
 export interface ReportConfig {
   port: number;
 }
 
+export interface ClaudeCodeProviderConfig {
+  enabled: boolean;
+}
+
+export interface CopilotRawEventConfig {
+  enabled: boolean;
+  /** Payloads larger than this are truncated before being stored as `rawEvent`. */
+  maxBytes: number;
+}
+
+export interface CopilotProviderConfig {
+  enabled: boolean;
+  rawEvent: CopilotRawEventConfig;
+}
+
 export interface ProvidersConfig {
-  'claude-code': ProviderStatus;
-  copilot: ProviderStatus;
+  claudeCode: ClaudeCodeProviderConfig;
+  copilot: CopilotProviderConfig;
 }
 
 export interface MetricsConfig {
@@ -192,6 +218,16 @@ export interface ReportPrompt {
   promptBody: string | null;
 }
 
+/** One row per raw_event within a session — kept verbatim so the report-ui can render it, e.g. for Copilot's experimental unmapped events. */
+export interface ReportRawEvent {
+  timestamp: string;
+  toolProvider: ToolProvider;
+  providerEventName: string | null;
+  normalizationStatus: NormalizationStatus;
+  rawEventTruncated: boolean;
+  rawEvent: unknown;
+}
+
 export interface ReportSession {
   sessionId: string;
   userSlug: string;
@@ -215,11 +251,22 @@ export interface ReportSession {
   skillNames: string[];
   tokenUsage: TokenTotals | null;
   tokenSource: TokenSource;
+  /** Distinct `providerEventName`s (e.g. "PreToolUse") seen across this session's events, excluding nulls. */
+  providerEventNames: string[];
+  /** Distinct `normalizationStatus`es seen across this session's events. */
+  normalizationStatuses: string[];
+  /** Count of this session's events with `eventType: "raw_event"`. */
+  rawEventCount: number;
+  /** Count of this session's events with `normalizationStatus: "raw_only"`. */
+  rawOnlyEventCount: number;
+  /** Count of this session's events with `rawEventTruncated: true`. */
+  rawEventTruncatedCount: number;
   prompts: ReportPrompt[];
   actions: ReportAction[];
+  rawEvents: ReportRawEvent[];
 }
 
-/** The metrics computed for one slice of sessions (overall, or grouped by user/date/provider/model/commit/agent/skill). */
+/** The metrics computed for one slice of sessions (overall, or grouped by user/date/provider/model/commit/agent/skill/providerEventName/normalizationStatus). */
 export interface MainMetrics {
   totalSessions: number;
   totalActions: number;
@@ -238,6 +285,12 @@ export interface MainMetrics {
   actionsPerSession: number | null;
   failedActionRate: number | null;
   uncommittedSessions: number;
+  /** Count of `raw_event`-type events. */
+  totalRawEvents: number;
+  /** Count of events with `normalizationStatus: "raw_only"`. */
+  rawOnlyEventCount: number;
+  /** Count of events with `rawEventTruncated: true`. */
+  rawEventTruncatedCount: number;
 }
 
 export interface ReportSummary {
@@ -248,10 +301,12 @@ export interface ReportSummary {
   byUser: Record<string, MainMetrics & { gitUserName: string }>;
   byDate: Record<string, MainMetrics>;
   byProvider: Record<string, MainMetrics>;
+  byProviderEventName: Record<string, MainMetrics>;
   byModel: Record<string, MainMetrics>;
   byCommit: Record<string, MainMetrics>;
   byAgent: Record<string, MainMetrics>;
   bySkill: Record<string, MainMetrics>;
+  byNormalizationStatus: Record<string, MainMetrics>;
 }
 
 export interface BuildReportOptions {

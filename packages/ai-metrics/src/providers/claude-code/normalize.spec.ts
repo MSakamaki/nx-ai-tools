@@ -35,7 +35,7 @@ describe('normalizeClaudeCodeEvent', () => {
     );
 
     expect(draft?.eventType).toBe('action_started');
-    expect((draft as { agentInfo: { used: boolean; name: string | null } }).agentInfo).toEqual({
+    expect(draft?.agent).toEqual({
       used: true,
       name: 'Explore',
       type: 'subagent',
@@ -70,8 +70,13 @@ describe('normalizeClaudeCodeEvent', () => {
     expect(normalizeClaudeCodeEvent(input({ hook_event_name: 'SessionEnd' }), CONTEXT)?.eventType).toBe('session_completed');
   });
 
-  it('returns undefined for hook events without a mapping', () => {
-    expect(normalizeClaudeCodeEvent(input({ hook_event_name: 'Notification' }), CONTEXT)).toBeUndefined();
+  it('maps hook events without a mapping to raw_event instead of dropping them', () => {
+    const draft = normalizeClaudeCodeEvent(input({ hook_event_name: 'Notification' }), CONTEXT);
+
+    expect(draft.eventType).toBe('raw_event');
+    expect(draft.normalizationStatus).toBe('raw_only');
+    expect(draft.providerEventName).toBe('Notification');
+    expect(draft.rawEvent).toEqual(input({ hook_event_name: 'Notification' }));
   });
 
   it('defaults unavailable fields to null and reflects it in sourceAvailability', () => {
@@ -93,6 +98,12 @@ describe('normalizeClaudeCodeEvent', () => {
     const rawInput = input({ hook_event_name: 'PreToolUse', tool_name: 'Edit' });
     const draft = normalizeClaudeCodeEvent(rawInput, CONTEXT);
 
-    expect(draft?.raw).toEqual(rawInput);
+    expect(draft?.rawEvent).toEqual(rawInput);
+  });
+
+  it('records the originating hook event name as providerEventName', () => {
+    const draft = normalizeClaudeCodeEvent(input({ hook_event_name: 'PreToolUse' }), CONTEXT);
+
+    expect(draft?.providerEventName).toBe('PreToolUse');
   });
 });

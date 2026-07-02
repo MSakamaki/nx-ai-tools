@@ -15,6 +15,7 @@ const views = {
   commits: document.getElementById('view-commits'),
   'provider-model': document.getElementById('view-provider-model'),
   'agent-skill': document.getElementById('view-agent-skill'),
+  'raw-events': document.getElementById('view-raw-events'),
 };
 
 document.getElementById('tabs').addEventListener('click', (event) => {
@@ -82,6 +83,29 @@ function collapsibleBody(text) {
       <div class="preview body-text">${escapeHtml(previewText)}</div>
       <button type="button" class="toggle-body" data-target="${id}">Show more</button>
       <div class="full" id="${id}" hidden>${renderBody(text)}</div>
+    </div>
+  `;
+}
+
+/** Collapsible pretty-printed JSON, for rawEvent — never markdown-rendered, always shown as raw text. */
+function collapsibleJson(value) {
+  const text = (() => {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  })();
+
+  if (text.length <= 200) {
+    return `<pre class="body-text raw-json">${escapeHtml(text)}</pre>`;
+  }
+  const id = `body-${++collapsibleId}`;
+  return `
+    <div class="collapsible">
+      <div class="preview body-text raw-json">${escapeHtml(text.slice(0, 200))}…</div>
+      <button type="button" class="toggle-body" data-target="${id}">Show more</button>
+      <pre class="full body-text raw-json" id="${id}" hidden>${escapeHtml(text)}</pre>
     </div>
   `;
 }
@@ -154,6 +178,9 @@ function renderOverview(summary) {
     ['Actions / session', formatNumber(m.actionsPerSession)],
     ['Failed action rate', formatPercent(m.failedActionRate)],
     ['Uncommitted sessions', m.uncommittedSessions],
+    ['Raw events', m.totalRawEvents],
+    ['Raw-only events', m.rawOnlyEventCount],
+    ['Truncated raw events', m.rawEventTruncatedCount],
   ];
 
   const statCards = cards
@@ -242,6 +269,9 @@ function emptyMainMetrics() {
     totalTokensPerSession: null,
     totalTokensPerCommit: null,
     failedActionRate: null,
+    totalRawEvents: 0,
+    rawOnlyEventCount: 0,
+    rawEventTruncatedCount: 0,
   };
 }
 
@@ -316,6 +346,78 @@ function renderAgentSkill(summary, sessions) {
   `;
 }
 
+function normalizationBadgeClass(status) {
+  if (status === 'raw_only') return 'experimental';
+  if (status === 'failed') return 'error';
+  return '';
+}
+
+// Fixed comparison set so all four statuses are visible even with zero occurrences, the same way
+// KNOWN_PROVIDERS keeps claude-code/copilot/unknown visible regardless of what's in the data.
+const KNOWN_NORMALIZATION_STATUSES = ['normalized', 'partial', 'raw_only', 'failed'];
+
+function renderRawEvents(summary, sessions) {
+  const countHeader = '<thead><tr><th>Key</th><th>Sessions</th><th>Raw events</th><th>Raw-only events</th><th>Truncated</th></tr></thead>';
+  const countRow = (key, m) =>
+    `<tr><td>${escapeHtml(key)}</td><td>${m.totalSessions}</td><td>${m.totalRawEvents}</td><td>${m.rawOnlyEventCount}</td><td>${m.rawEventTruncatedCount}</td></tr>`;
+  const countRows = (breakdown) =>
+    Object.entries(breakdown)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, m]) => countRow(key, m))
+      .join('');
+  const normalizationStatusRows = KNOWN_NORMALIZATION_STATUSES.map((status) =>
+    countRow(status, summary.byNormalizationStatus[status] ?? emptyMainMetrics()),
+  ).join('');
+
+  const rawEvents = sessions.flatMap((session) =>
+    session.rawEvents.map((event) => ({ session, event })),
+  );
+
+  const eventCards = rawEvents
+    .sort((a, b) => b.event.timestamp.localeCompare(a.event.timestamp))
+    .map(
+      ({ session, event }) => `
+        <article class="session-card">
+          <h3>${escapeHtml(session.sessionId)}</h3>
+          <div class="meta">
+            <span class="badge">${escapeHtml(event.toolProvider)}</span>
+            ${
+              event.toolProvider === 'copilot'
+                ? '<span class="badge experimental" title="Copilot raw events: experimental, best-effort — see docs/provider-strategy.md">experimental</span>'
+                : ''
+            }
+            <span class="badge ${normalizationBadgeClass(event.normalizationStatus)}">${escapeHtml(event.normalizationStatus)}</span>
+            ${event.providerEventName ? `· ${escapeHtml(event.providerEventName)}` : ''}
+            ${event.rawEventTruncated ? '<span class="badge">truncated</span>' : ''}
+            · <span class="timestamp">${event.timestamp}</span>
+          </div>
+          ${collapsibleJson(event.rawEvent)}
+        </article>
+      `,
+    )
+    .join('');
+
+  views['raw-events'].innerHTML = `
+    <p class="muted">
+      Events ai-metrics couldn't normalize into its own schema (e.g. an unrecognized Copilot event)
+      are still recorded here, verbatim, instead of being silently dropped. Copilot's raw events are
+      experimental — availability depends entirely on how your Copilot event source is wired up.
+    </p>
+    <table>
+      <caption>By provider event name</caption>
+      ${countHeader}
+      <tbody>${countRows(summary.byProviderEventName) || emptyRow(5)}</tbody>
+    </table>
+    <table>
+      <caption>By normalization status (normalized / partial / raw_only / failed)</caption>
+      ${countHeader}
+      <tbody>${normalizationStatusRows}</tbody>
+    </table>
+    <h2>Raw events</h2>
+    ${eventCards || '<p class="muted">None recorded.</p>'}
+  `;
+}
+
 function renderNotBuilt(message) {
   statusEl.hidden = true;
   views.overview.hidden = false;
@@ -353,6 +455,7 @@ async function main() {
     renderCommits(summary);
     renderProviderModel(summary);
     renderAgentSkill(summary, sessions);
+    renderRawEvents(summary, sessions);
 
     for (const [name, el] of Object.entries(views)) {
       el.hidden = name !== 'overview';

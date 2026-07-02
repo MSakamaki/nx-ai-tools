@@ -1,25 +1,32 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG, DEFAULT_CONFIG_FILE_NAME } from '../../config/default-config.js';
 import { resolveEventsDirPath, resolveGeneratedDirPath, resolveHooksDirPath, resolveMetricsRootPath } from '../../core/paths.js';
-import type { ClaudeSettings } from './claude-settings-merge.js';
-import { mergeClaudeHooks } from './claude-settings-merge.js';
+import type { ProviderId, SelectProvidersOptions } from '../provider-selection.js';
+import { selectProviders } from '../provider-selection.js';
+import { initClaudeCode } from './init-claude-code.js';
+import type { ConfirmFn, FileTaskOptions } from './init-file-task.js';
+import { applyFileTask } from './init-file-task.js';
+import { initCopilot } from './init-copilot.js';
 
 const TEMPLATES_DIR = fileURLToPath(new URL('../../templates/', import.meta.url));
-const HOOK_SCRIPT_TEMPLATE_PATH = join(TEMPLATES_DIR, 'claude-code-hook.mjs');
 const CONFIG_TEMPLATE_PATH = join(TEMPLATES_DIR, 'metrics.config.json');
-const CLAUDE_SETTINGS_PATCH_PATH = join(TEMPLATES_DIR, 'claude-settings.patch.json');
-const HOOK_SCRIPT_FILE_NAME = 'claude-code-hook.mjs';
 const GENERATED_DIR_GITIGNORE = '*\n';
 
 export interface RunInitOptions {
   cwd?: string;
   dryRun?: boolean;
   force?: boolean;
+  /** Raw `--provider` CLI value (e.g. "claude-code,copilot"); omit to select interactively/via default. */
+  provider?: string;
+  /** Injection seam for tests; defaults to `process.stdin.isTTY === true`. */
+  isTTY?: boolean;
   /** Injection seam for tests; defaults to a real y/N stdin prompt. */
-  confirm?: (message: string) => boolean | Promise<boolean>;
+  confirm?: ConfirmFn;
+  /** Injection seam for tests; defaults to the real interactive checkbox / non-TTY fallback. */
+  selectProviders?: (options: SelectProvidersOptions) => Promise<ProviderId[]>;
 }
 
 async function defaultConfirm(message: string): Promise<boolean> {
@@ -53,6 +60,11 @@ export async function runInit(options: RunInitOptions = {}): Promise<void> {
   const dryRun = options.dryRun ?? false;
   const force = options.force ?? false;
   const confirm = options.confirm ?? defaultConfirm;
+  const isTTY = options.isTTY ?? process.stdin.isTTY === true;
+  const resolveProviders = options.selectProviders ?? selectProviders;
+
+  const providers = await resolveProviders({ provider: options.provider, isTTY });
+  console.log(`ai-metrics init: providers = [${providers.join(', ')}]${dryRun ? ' (dry-run)' : ''}`);
 
   const config = DEFAULT_CONFIG;
   const metricsRoot = resolveMetricsRootPath(config, cwd);
@@ -60,14 +72,38 @@ export async function runInit(options: RunInitOptions = {}): Promise<void> {
   const generatedDir = resolveGeneratedDirPath(config, cwd);
   const hooksDir = resolveHooksDirPath(config, cwd);
   const configPath = join(metricsRoot, DEFAULT_CONFIG_FILE_NAME);
-  const hookScriptPath = join(hooksDir, HOOK_SCRIPT_FILE_NAME);
-  const claudeSettingsPath = join(cwd, '.claude', 'settings.json');
   const gitignorePath = join(cwd, '.gitignore');
   const gitignoreLine = `${config.generatedDir}/`;
 
+  const fileTaskOptions: FileTaskOptions = { dryRun, force, isTTY, confirm };
+
   const dirsToCreate = [metricsRoot, eventsDir, generatedDir, hooksDir].filter((dir) => !existsSync(dir));
-  const willWriteConfig = !existsSync(configPath);
-  const willWriteHookScript = !existsSync(hookScriptPath);
+  for (const dir of dirsToCreate) {
+    if (dryRun) {
+      console.log(`[dry-run] create directory: ${dir}`);
+    } else {
+      mkdirSync(dir, { recursive: true });
+      console.log(`Created directory: ${dir}`);
+    }
+  }
+
+  // Shared by every provider: the config file itself and the events/generated dirs above.
+  await applyFileTask({ destPath: configPath, sourcePath: CONFIG_TEMPLATE_PATH }, fileTaskOptions);
+
+  if (providers.includes('claude-code')) {
+    await initClaudeCode({ ...fileTaskOptions, cwd, hooksDir });
+  }
+
+  if (providers.includes('copilot')) {
+    await initCopilot({ ...fileTaskOptions, cwd, hooksDir });
+  }
+
+  if (dryRun) {
+    console.log(`  write file: ${join(generatedDir, '.gitignore')}`);
+  } else {
+    writeFileSync(join(generatedDir, '.gitignore'), GENERATED_DIR_GITIGNORE, 'utf8');
+  }
+
   const gitignoreAlreadyHasLine = existsSync(gitignorePath)
     ? readFileSync(gitignorePath, 'utf8')
         .split('\n')
@@ -75,72 +111,14 @@ export async function runInit(options: RunInitOptions = {}): Promise<void> {
         .includes(gitignoreLine)
     : false;
 
-  let existingSettings: ClaudeSettings = {};
-  let settingsParseError: string | undefined;
-  if (existsSync(claudeSettingsPath)) {
-    try {
-      existingSettings = JSON.parse(readFileSync(claudeSettingsPath, 'utf8')) as ClaudeSettings;
-    } catch (error) {
-      settingsParseError = error instanceof Error ? error.message : String(error);
-    }
-  }
-
-  const patch = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATCH_PATH, 'utf8')) as ClaudeSettings;
-  const canMergeSettings = settingsParseError === undefined;
-  const mergeResult = canMergeSettings ? mergeClaudeHooks(existingSettings, patch) : undefined;
-  // A fully idempotent re-run (nothing new to add) should never prompt — only a genuine
-  // partial/mixed state (some events already registered, others missing) needs a human decision.
-  const needsConfirmation =
-    !force && !!mergeResult && mergeResult.alreadyPresentEvents.length > 0 && mergeResult.addedEvents.length > 0;
-
   if (dryRun) {
-    console.log('[dry-run] ai-metrics init would make the following changes:');
-    for (const dir of dirsToCreate) {
-      console.log(`  create directory: ${dir}`);
-    }
-    console.log(willWriteConfig ? `  write file: ${configPath}` : `  skip (exists): ${configPath}`);
-    console.log(willWriteHookScript ? `  write file: ${hookScriptPath}` : `  skip (exists): ${hookScriptPath}`);
     console.log(
       gitignoreAlreadyHasLine
         ? `  skip (already present): ${gitignorePath} entry "${gitignoreLine}"`
         : `  append to ${gitignorePath}: "${gitignoreLine}"`,
     );
-    if (!canMergeSettings) {
-      console.log(`  skip ${claudeSettingsPath}: existing file is not valid JSON (${settingsParseError})`);
-    } else if (mergeResult) {
-      if (mergeResult.addedEvents.length > 0) {
-        console.log(`  update ${claudeSettingsPath}: add hooks for [${mergeResult.addedEvents.join(', ')}]`);
-      }
-      if (mergeResult.alreadyPresentEvents.length > 0) {
-        console.log(`  ${claudeSettingsPath} already has hooks for [${mergeResult.alreadyPresentEvents.join(', ')}]`);
-        if (mergeResult.addedEvents.length > 0) {
-          console.log(force ? '  (--force: would re-apply without asking)' : '  (would ask for confirmation before touching this file)');
-        }
-      }
-    }
     return;
   }
-
-  for (const dir of dirsToCreate) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  if (willWriteConfig) {
-    copyFileSync(CONFIG_TEMPLATE_PATH, configPath);
-    console.log(`Created ${configPath}`);
-  } else {
-    console.log(`Skipped ${configPath} (already exists)`);
-  }
-
-  if (willWriteHookScript) {
-    copyFileSync(HOOK_SCRIPT_TEMPLATE_PATH, hookScriptPath);
-    chmodSync(hookScriptPath, 0o755);
-    console.log(`Created ${hookScriptPath}`);
-  } else {
-    console.log(`Skipped ${hookScriptPath} (already exists)`);
-  }
-
-  writeFileSync(join(generatedDir, '.gitignore'), GENERATED_DIR_GITIGNORE, 'utf8');
 
   const gitignoreResult = ensureGitignoreEntry(gitignorePath, gitignoreLine);
   console.log(
@@ -148,34 +126,4 @@ export async function runInit(options: RunInitOptions = {}): Promise<void> {
       ? `Added "${gitignoreLine}" to ${gitignorePath}`
       : `${gitignorePath} already ignores "${gitignoreLine}"`,
   );
-
-  if (!canMergeSettings) {
-    console.error(`[ai-metrics] ${claudeSettingsPath} is not valid JSON; skipping hooks setup: ${settingsParseError}`);
-    return;
-  }
-
-  if (!mergeResult) {
-    return;
-  }
-
-  let proceed = true;
-  if (needsConfirmation) {
-    proceed = await confirm(
-      `ai-metrics hooks already appear to be configured in ${claudeSettingsPath} (${mergeResult.alreadyPresentEvents.join(', ')}). Merge anyway?`,
-    );
-  }
-
-  if (!proceed) {
-    console.log(`Skipped updating ${claudeSettingsPath}.`);
-    return;
-  }
-
-  if (mergeResult.addedEvents.length === 0) {
-    console.log(`${claudeSettingsPath} already has ai-metrics hooks configured; nothing to do.`);
-    return;
-  }
-
-  mkdirSync(dirname(claudeSettingsPath), { recursive: true });
-  writeFileSync(claudeSettingsPath, `${JSON.stringify(mergeResult.settings, null, 2)}\n`, 'utf8');
-  console.log(`Updated ${claudeSettingsPath} (added hooks for: ${mergeResult.addedEvents.join(', ')})`);
 }

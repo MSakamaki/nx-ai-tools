@@ -2,8 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordEvent } from '../core/record-event.js';
-import type { GitContext, PromptSubmittedEvent, SourceAvailability } from '../core/types.js';
-import { buildReport, ReportBuildError } from './buildReport.js';
+import type { AgentInfo, GitContext, PromptSubmittedEvent, SkillInfo, SourceAvailability } from '../core/types.js';
+import { buildReport, ReportBuildError } from './build-report.js';
 
 const GIT_CONTEXT: GitContext = {
   repoRootHash: 'repo-hash',
@@ -13,6 +13,9 @@ const GIT_CONTEXT: GitContext = {
   commitHash: null,
   commitLinkStrategy: 'since_previous_commit',
 };
+
+const NO_AGENT: AgentInfo = { used: false, name: null, type: null, sourcePath: null };
+const NO_SKILL: SkillInfo = { used: false, name: null, sourcePath: null };
 
 const SOURCE_AVAILABILITY: SourceAvailability = {
   tokenUsageAvailable: false,
@@ -29,11 +32,16 @@ function promptSubmittedDraft(sessionId: string): Omit<PromptSubmittedEvent, 'sc
     gitUserName: 'Alice',
     userSlug: 'alice',
     toolProvider: 'claude-code',
+    providerEventName: null,
     modelRaw: null,
     status: null,
+    normalizationStatus: 'normalized',
     sourceAvailability: SOURCE_AVAILABILITY,
-    gitContext: GIT_CONTEXT,
-    raw: null,
+    git: GIT_CONTEXT,
+    agent: NO_AGENT,
+    skill: NO_SKILL,
+    rawEvent: null,
+    rawEventTruncated: false,
     promptBody: null,
   };
 }
@@ -68,7 +76,7 @@ describe('buildReport', () => {
     recordEvent(
       {
         ...promptSubmittedDraft('s1'),
-        gitContext: { ...GIT_CONTEXT, repoRootHash: 'unknown', branch: 'unknown', baseCommitHash: 'unknown' },
+        git: { ...GIT_CONTEXT, repoRootHash: 'unknown', branch: 'unknown', baseCommitHash: 'unknown' },
       },
       { cwd },
     );

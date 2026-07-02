@@ -1,0 +1,10 @@
+{
+  "eventTypeMap": {
+    "userPromptSubmitted": "prompt_submitted",
+    "preToolUse": "action_started",
+    "postToolUse": "action_completed",
+    "errorOccurred": "action_failed",
+    "agentStop": "session_completed",
+    "sessionEnd": "session_completed"
+  }
+}

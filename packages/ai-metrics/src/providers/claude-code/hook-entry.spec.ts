@@ -45,9 +45,16 @@ describe('runHookEntry', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('ignores hook events without a mapping and does not create an events file', () => {
+  it('records hook events without a specific mapping as a raw_event instead of dropping them', () => {
     runHookEntry({ cwd, input: JSON.stringify({ hook_event_name: 'Notification', session_id: 's1' }) });
 
-    expect(existsSync(join(cwd, '.ai/metrics/events'))).toBe(false);
+    const eventsRoot = join(cwd, '.ai/metrics/events');
+    const userDirs = readdirSync(eventsRoot);
+    const files = readdirSync(join(eventsRoot, userDirs[0]));
+    const event = JSON.parse(readFileSync(join(eventsRoot, userDirs[0], files[0]), 'utf8').trim());
+
+    expect(event.eventType).toBe('raw_event');
+    expect(event.normalizationStatus).toBe('raw_only');
+    expect(event.providerEventName).toBe('Notification');
   });
 });

@@ -178,4 +178,153 @@ describe('runDoctorChecks', () => {
     const entries = readdirSync(join(cwd, '.ai/metrics/events'));
     expect(entries).toEqual([]);
   });
+
+  describe('generated dir gitignore', () => {
+    it('warns when .gitignore does not exist', () => {
+      expect(byId(runDoctorChecks(cwd), 'generated-dir-gitignored').status).toBe('warn');
+    });
+
+    it('warns when .gitignore exists but lacks the generated/ entry', () => {
+      writeFileSync(join(cwd, '.gitignore'), 'node_modules\n');
+      expect(byId(runDoctorChecks(cwd), 'generated-dir-gitignored').status).toBe('warn');
+    });
+
+    it('reports ok once .gitignore contains the generated/ entry', () => {
+      writeFileSync(join(cwd, '.gitignore'), '.ai/metrics/generated/\n');
+      expect(byId(runDoctorChecks(cwd), 'generated-dir-gitignored').status).toBe('ok');
+    });
+  });
+
+  describe('copilot checks (auto-detection)', () => {
+    it('does not appear at all when nothing copilot-related is on disk and --provider is omitted', () => {
+      const checks = runDoctorChecks(cwd);
+      expect(checks.some((check) => check.id.startsWith('copilot-'))).toBe(false);
+    });
+
+    it('appears once .github/hooks/ai-metrics.json exists, even without --provider', () => {
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      writeFileSync(join(cwd, '.github/hooks/ai-metrics.json'), JSON.stringify({ version: 1, hooks: {} }));
+
+      const checks = runDoctorChecks(cwd);
+      expect(checks.some((check) => check.id === 'copilot-hooks-json-exists')).toBe(true);
+    });
+
+    it('is excluded when --provider claude-code is given explicitly, even if copilot is configured', () => {
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      writeFileSync(join(cwd, '.github/hooks/ai-metrics.json'), JSON.stringify({ version: 1, hooks: {} }));
+
+      const checks = runDoctorChecks(cwd, { providers: ['claude-code'] });
+      expect(checks.some((check) => check.id.startsWith('copilot-'))).toBe(false);
+    });
+  });
+
+  describe('.github/hooks/ai-metrics.json', () => {
+    function writeHooksJson(value: unknown): void {
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      writeFileSync(join(cwd, '.github/hooks/ai-metrics.json'), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+
+    it('errors when the file is not valid JSON', () => {
+      writeHooksJson('{ not json');
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-exists').status).toBe('ok');
+      expect(byId(checks, 'copilot-hooks-json-parses').status).toBe('error');
+    });
+
+    it('errors when top-level version/hooks are missing', () => {
+      writeHooksJson({ notVersion: 1 });
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-shape').status).toBe('error');
+    });
+
+    it('warns when no hook command references copilot-hook.mjs', () => {
+      writeHooksJson({ version: 1, hooks: { userPromptSubmitted: { command: 'node something-else.mjs' } } });
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-references-hook-script').status).toBe('warn');
+    });
+
+    it('reports ok end-to-end for a well-formed file', () => {
+      writeHooksJson({
+        version: 1,
+        hooks: { userPromptSubmitted: { command: 'node .ai/metrics/hooks/copilot-hook.mjs', env: {} } },
+      });
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-exists').status).toBe('ok');
+      expect(byId(checks, 'copilot-hooks-json-parses').status).toBe('ok');
+      expect(byId(checks, 'copilot-hooks-json-shape').status).toBe('ok');
+      expect(byId(checks, 'copilot-hooks-json-references-hook-script').status).toBe('ok');
+    });
+  });
+
+  describe('--provider copilot required-file elevation', () => {
+    it('errors (not warns) when .github/hooks/ai-metrics.json is missing', () => {
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-exists').status).toBe('error');
+    });
+
+    it('errors (not warns) when copilot-hook.mjs is missing', () => {
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hook-script').status).toBe('error');
+    });
+
+    it('only warns (auto-detect mode) when copilot is not explicitly requested', () => {
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      writeFileSync(join(cwd, '.github/hooks/ai-metrics.json'), JSON.stringify({ version: 1, hooks: {} }));
+
+      const checks = runDoctorChecks(cwd);
+      expect(byId(checks, 'copilot-hook-script').status).toBe('warn');
+    });
+
+    it('reports ok once both required files exist', () => {
+      mkdirSync(join(cwd, '.github/hooks'), { recursive: true });
+      mkdirSync(join(cwd, '.ai/metrics/hooks'), { recursive: true });
+      writeFileSync(
+        join(cwd, '.github/hooks/ai-metrics.json'),
+        JSON.stringify({ version: 1, hooks: { userPromptSubmitted: { command: 'node .ai/metrics/hooks/copilot-hook.mjs' } } }),
+      );
+      writeFileSync(join(cwd, '.ai/metrics/hooks/copilot-hook.mjs'), '// hook\n');
+
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-hooks-json-exists').status).toBe('ok');
+      expect(byId(checks, 'copilot-hook-script').status).toBe('ok');
+    });
+  });
+
+  describe('copilot config value checks', () => {
+    it('reads providers.copilot.enabled and providers.copilot.rawEvent.maxBytes from the default config', () => {
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+
+      expect(byId(checks, 'copilot-enabled')).toMatchObject({ status: 'ok', message: 'true' });
+      expect(byId(checks, 'copilot-raw-event-max-bytes')).toMatchObject({ status: 'ok', message: '1048576' });
+    });
+
+    it('reflects an overridden maxBytes from metrics.config.json', () => {
+      mkdirSync(join(cwd, '.ai/metrics'), { recursive: true });
+      writeFileSync(
+        join(cwd, '.ai/metrics/metrics.config.json'),
+        JSON.stringify({ providers: { copilot: { rawEvent: { maxBytes: 2048 } } } }),
+      );
+
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-raw-event-max-bytes').message).toBe('2048');
+    });
+  });
+
+  describe('copilot scaffold files', () => {
+    it('warns when adapter.config.json and sample-event.json are missing', () => {
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-adapter-config').status).toBe('warn');
+      expect(byId(checks, 'copilot-sample-event').status).toBe('warn');
+    });
+
+    it('reports ok once both exist', () => {
+      mkdirSync(join(cwd, '.ai/metrics/copilot'), { recursive: true });
+      writeFileSync(join(cwd, '.ai/metrics/copilot/adapter.config.json'), '{}');
+      writeFileSync(join(cwd, '.ai/metrics/copilot/sample-event.json'), '{}');
+
+      const checks = runDoctorChecks(cwd, { providers: ['copilot'] });
+      expect(byId(checks, 'copilot-adapter-config').status).toBe('ok');
+      expect(byId(checks, 'copilot-sample-event').status).toBe('ok');
+    });
+  });
 });
