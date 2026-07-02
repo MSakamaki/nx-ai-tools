@@ -1,9 +1,10 @@
 {
   "name": "@nx-ai-tools/ai-metrics",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Capture AI coding assistant usage (Claude Code hooks, GitHub Copilot) into local jsonl logs and build usage reports.",
   "license": "MIT",
   "type": "module",
+  "private": false,
   "engines": {
     "node": ">=22"
   },
