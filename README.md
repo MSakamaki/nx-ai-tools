@@ -1,37 +1,36 @@
 # Nx Ai Tools
 
-English | [日本語](./README_ja.md)
+[English](./README_en.md) | 日本語
 
-## Releasing
+## リリース手順
 
-Package versioning and npm publishing is managed with [Changesets](https://github.com/changesets/changesets).
-`@nx-ai-tools/ai-metrics` is published as a public npm package.
+パッケージのバージョン管理とnpm publishは [Changesets](https://github.com/changesets/changesets) で管理しています。
+`@nx-ai-tools/ai-metrics` はpublicなnpm packageとして公開されます。
 
-1. **Create a changeset** for your change: `npx changeset` (or `npm run changeset`), pick the
-   affected package(s) and bump type, and commit the generated file under `.changeset/` along with
-   your PR.
-2. **Merge to `main`.** The changeset file(s) land on `main` along with your change.
-3. **Changesets opens a "Version Packages" PR.** The `Version Packages` workflow
-   (`.github/workflows/version.yml`) runs on every push to `main`, bumps package versions,
-   updates `CHANGELOG.md`, and consumes the pending changesets — all in one auto-maintained PR.
-4. **Merge the "Version Packages" PR** once you're ready to release. This updates `main` with the
-   new version number(s) and changelog(s), but does **not** publish to npm.
-5. **Create a GitHub Release** for the new version (tag it e.g. `ai-metrics@x.y.z`, pointing at the
-   commit from the merged Version Packages PR).
-6. **Publishing to npm happens automatically** once that Release is published: the `Publish`
-   workflow (`.github/workflows/publish.yml`) triggers on the `release.published` event, runs
-   `nx affected` (lint/test/build/typecheck), packs and smoke-tests the `ai-metrics` CLI from the
-   built tarball, then runs `npm publish --access public --provenance` for
-   `@nx-ai-tools/ai-metrics`.
+1. **changesetを作成する**: `npx changeset`(または `npm run changeset`)を実行し、対象パッケージと
+   バージョンの種類を選択、生成されたファイルを `.changeset/` 配下にPRと一緒にコミットします。
+2. **mainへmergeする。** changesetファイルは変更内容と共に `main` に取り込まれます。
+3. **Changesetsが "Version Packages" PRを作成する。** `Version Packages` workflow
+   (`.github/workflows/version.yml`) が `main` へのpushのたびに実行され、パッケージのバージョンを
+   上げ、`CHANGELOG.md` を更新し、未反映のchangesetを1つのPRにまとめます(このPRは自動的に
+   最新の状態に更新され続けます)。
+4. リリースする準備ができたら **"Version Packages" PRをmergeします。** これにより `main` に新しい
+   バージョン番号とchangelogが反映されますが、npmへのpublishは **行われません**。
+5. 新しいバージョンに対して **GitHub Releaseを作成します**(例: `ai-metrics@x.y.z` のようなタグを、
+   マージ済みのVersion Packages PRのコミットに対して付与)。
+6. そのReleaseがpublishされると、**npmへの公開が自動的に行われます**: `Publish` workflow
+   (`.github/workflows/publish.yml`) が `release.published` イベントをトリガーに起動し、
+   `nx affected`(lint/test/build/typecheck)を実行し、ビルド済みtarballから `ai-metrics` CLIの
+   pack・smoke testを行った上で、`@nx-ai-tools/ai-metrics` に対して
+   `npm publish --access public --provenance` を実行します。
 
-npm publishing only ever happens from the `Publish` workflow, never from CI or the versioning
-workflow — publishing a GitHub Release is the explicit, human-triggered gate for shipping to npm.
-If the version being released already exists on npm, the `npm publish` step fails as expected;
-publish a new version instead.
+npmへのpublishは常に `Publish` workflowからのみ行われ、CIやバージョニングのworkflowからは
+行われません — GitHub Releaseの作成が、npmへ公開するための明示的かつ人手によるゲートです。
+公開しようとしているバージョンが既にnpmに存在する場合、`npm publish` は想定通り失敗します。
+その場合は新しいバージョンを公開し直してください。
 
-### Required secret
+### 必要なsecret
 
-The `Publish` workflow needs an **`NPM_TOKEN`** repository secret — an npm automation token with
-publish rights to `@nx-ai-tools/ai-metrics` — set under Settings → Secrets and variables → Actions.
-Without it, `npm publish` in that workflow will fail authentication.
-
+`Publish` workflowには **`NPM_TOKEN`** リポジトリsecretが必要です — `@nx-ai-tools/ai-metrics` への
+publish権限を持つnpm automation tokenを、Settings → Secrets and variables → Actions配下に登録して
+ください。設定されていない場合、そのworkflow内の `npm publish` は認証エラーで失敗します。
